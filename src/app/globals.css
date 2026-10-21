@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter);
+
+  /* Superficies */
+  --color-surface: #F5F4F0;
+  --color-card: #FFFFFF;
+  --color-border: #E4E2DB;
+
+  /* Texto */
+  --color-foreground: #1A1A1A;
+  --color-muted: #6B6B66;
+
+  /* Sidebar */
+  --color-sidebar: #161616;
+  --color-sidebar-active: #2A2A2A;
+
+  /* Acento (default; se sobreescribe por tienda vía CSS var) */
+  --color-accent: #E9B949;
+
+  /* Estado de stock */
+  --color-stock-ok-bg: #E3F1E6;
+  --color-stock-ok: #1F6B35;
+  --color-stock-low-bg: #FBEFCF;
+  --color-stock-low: #7A5600;
+  --color-stock-none-bg: #FBE3E0;
+  --color-stock-none: #A12A1E;
+
+  /* Radio */
+  --radius-card: 16px;
+  --radius-input: 10px;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-foreground);
+  font-family: var(--font-sans, ui-sans-serif, system-ui);
+}
