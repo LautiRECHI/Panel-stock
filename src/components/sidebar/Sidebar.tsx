@@ -31,7 +31,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { href: '/panel', icon: LayoutDashboard, label: 'Resumen', exact: true },
-  { icon: Package, label: 'Productos', disabled: true },
+  { href: '/panel/productos', icon: Package, label: 'Productos' },
   { href: '/panel/categorias', icon: Tag, label: 'Categorías' },
   { icon: ArrowLeftRight, label: 'Movimientos de stock', disabled: true },
   { icon: MessageSquare, label: 'Consultas', disabled: true },

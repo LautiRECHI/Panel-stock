@@ -15,7 +15,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(58);   -- total de assertions
+SELECT plan(67);   -- total de assertions
 
 -- =====================
 -- Setup: dos tiendas, dos usuarios, datos de ejemplo
@@ -607,6 +607,108 @@ SELECT throws_ok(
     VALUES ('20000000-0000-0000-0000-000000000001', 'Padre X Dup', 'padre-x')$$,
   '23505', NULL,
   '58. Slug duplicado en raíz falla (uq_categories_root_slug)'
+);
+
+-- =====================
+-- PARTE 14 — adjust_stock y set_stock (tests 59-67)
+-- Store B fue borrada en test 54; creamos Store C para el test de aislamiento.
+-- =====================
+RESET role;
+
+INSERT INTO public.stores (id, name, slug)
+VALUES ('20000000-0000-0000-0000-000000000003', 'Tienda C', 'tienda-c')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.store_members (user_id, store_id, role)
+VALUES ('10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000003', 'owner')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.products (id, store_id, name, slug, price, status)
+VALUES ('40000000-0000-0000-0003-000000000001', '20000000-0000-0000-0000-000000000003', 'Producto C', 'producto-c', 50, 'active')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.product_variants (id, store_id, product_id, sku, stock)
+VALUES ('50000000-0000-0000-0003-000000000001', '20000000-0000-0000-0000-000000000003',
+        '40000000-0000-0000-0003-000000000001', 'SKU-C-001', 5)
+ON CONFLICT (id) DO NOTHING;
+
+-- Usuario A: después de los tests anteriores la variante A tiene stock=15
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- 59. adjust_stock retorna el nuevo stock (15 + 5 = 20)
+SELECT results_eq(
+  $$SELECT public.adjust_stock('50000000-0000-0000-0001-000000000001', 5, 'test ajuste')$$,
+  $$VALUES (20::integer)$$,
+  '59. adjust_stock retorna el nuevo stock (15 + 5 = 20)'
+);
+
+-- 60. adjust_stock crea movimiento con el reason correcto
+SELECT ok(
+  (SELECT count(*) >= 1 FROM public.stock_movements
+   WHERE variant_id = '50000000-0000-0000-0001-000000000001'
+     AND reason = 'test ajuste'
+     AND delta = 5),
+  '60. adjust_stock crea movimiento con reason correcto'
+);
+
+-- 61. adjust_stock movimiento tiene user_id del llamador
+SELECT ok(
+  (SELECT count(*) >= 1 FROM public.stock_movements
+   WHERE variant_id = '50000000-0000-0000-0001-000000000001'
+     AND reason = 'test ajuste'
+     AND user_id = '10000000-0000-0000-0000-000000000001'),
+  '61. adjust_stock movimiento tiene el user_id del llamador'
+);
+
+-- 62. adjust_stock falla si el stock quedaría negativo (CHECK stock >= 0 → 23514)
+SELECT throws_ok(
+  $$SELECT public.adjust_stock('50000000-0000-0000-0001-000000000001', -9999, 'negativo')$$,
+  '23514', NULL,
+  '62. adjust_stock falla si el stock quedaría negativo (CHECK constraint 23514)'
+);
+
+-- 63. Usuario A no puede adjust_stock en variante de Tienda C (RLS → P0002)
+SELECT throws_ok(
+  $$SELECT public.adjust_stock('50000000-0000-0000-0003-000000000001', 1, 'intruso')$$,
+  'P0002', NULL,
+  '63. Usuario A no puede adjust_stock en variante de otra tienda (RLS → P0002)'
+);
+
+-- 64. Anon no puede ejecutar adjust_stock
+SET LOCAL role TO anon;
+SELECT throws_ok(
+  $$SELECT public.adjust_stock('50000000-0000-0000-0001-000000000001', 1, 'test')$$,
+  '42501', NULL,
+  '64. Anon no puede ejecutar adjust_stock (42501)'
+);
+
+-- 65. set_stock establece el valor absoluto
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+SELECT results_eq(
+  $$SELECT public.set_stock('50000000-0000-0000-0001-000000000001', 100, 'inventario inicial')$$,
+  $$VALUES (100::integer)$$,
+  '65. set_stock retorna el nuevo stock absoluto (100)'
+);
+
+-- 66. set_stock crea movimiento con reason correcto
+SELECT ok(
+  (SELECT count(*) >= 1 FROM public.stock_movements
+   WHERE variant_id = '50000000-0000-0000-0001-000000000001'
+     AND reason = 'inventario inicial'),
+  '66. set_stock crea movimiento con reason correcto'
+);
+
+-- 67. Anon no puede ejecutar set_stock
+SET LOCAL role TO anon;
+SELECT throws_ok(
+  $$SELECT public.set_stock('50000000-0000-0000-0001-000000000001', 1, 'test')$$,
+  '42501', NULL,
+  '67. Anon no puede ejecutar set_stock (42501)'
 );
 
 SELECT * FROM finish();
