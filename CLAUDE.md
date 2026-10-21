@@ -1,5 +1,19 @@
 # CLAUDE.md — Panel de gestión multi-tienda
 
+## Comandos
+```bash
+npm run dev      # servidor de desarrollo (Turbopack)
+npm run build    # build de producción; debe terminar sin errores antes de cerrar una tarea
+npm run lint     # ESLint (flat config, eslint.config.mjs)
+```
+
+Tests de aislamiento (pgTAP, requiere Supabase CLI):
+```bash
+npx supabase start
+npx supabase db reset        # aplica las migraciones
+npx supabase test db         # ejecuta supabase/tests/database/isolation.test.sql
+```
+
 ## Contexto
 Panel de administración multi-tenant para tiendas pequeñas y medianas de cualquier rubro (primer cliente: Punto de Oro, pádel). Cada tienda carga y gestiona sus productos, categorías, variantes, fotos y stock. Los frontends de cada tienda se desarrollan por separado y consumen los datos de este panel mediante una API pública de solo lectura.
 
@@ -15,6 +29,18 @@ Dueños de comercios sin conocimientos técnicos que cargan su mercadería ellos
 - Validación con Zod, formularios con React Hook Form
 - Sin librerías de UI pesadas; componentes propios chicos, íconos con lucide-react
 - npm como gestor de paquetes
+
+### Versiones al 21/10/2026 (orientativas)
+- Next.js 16.4.2, React 19.3.0
+- Tailwind CSS 4 — configuración vía bloque `@theme` en `src/app/globals.css`; sin `tailwind.config.ts`
+- @supabase/ssr 0.12.7, @supabase/supabase-js 2.118.0
+- Zod 4.6.7 — la API cambió: usar `.issues[0].message`, no `.errors[0].message`
+- lucide-react 1.61.0
+
+### Next.js 16 — diferencias clave
+- El middleware se llama `src/proxy.ts` y exporta `proxy` (no `middleware`).
+- `cacheComponents: true` está activo en `next.config.ts`. Todo layout o page que lea usuario o datos de tienda debe llamar `await connection()` (de `next/server`) como **primera línea**, antes de usar Supabase, para señalar renderizado dinámico. Alternativa: mover la lectura de datos a un componente async dentro de `<Suspense>`. Nunca usar `"use cache"` con datos de usuario.
+- Tipos de props globales (generados en `.next/types/routes.d.ts`): `PageProps<"/ruta">` para pages y `LayoutProps<"/ruta">` para layouts.
 
 ## Seguridad (innegociable)
 1. Toda tabla con datos de tienda tiene columna store_id NOT NULL y Row Level Security activado. Una tabla sin RLS no se crea.

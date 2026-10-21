@@ -1,6 +1,9 @@
+import { connection } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 export default async function PanelPage() {
+  await connection()
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -8,10 +11,8 @@ export default async function PanelPage() {
 
   return (
     <div className="max-w-3xl">
-      <h1 className="text-2xl font-semibold text-foreground mb-1">Inicio</h1>
-      <p className="text-muted text-sm mb-8">
-        Bienvenido, {user?.email}
-      </p>
+      <h1 className="text-2xl font-semibold text-foreground mb-1">Resumen</h1>
+      <p className="text-muted text-sm mb-8">{user?.email}</p>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-card rounded-card border border-border p-5">

@@ -2,6 +2,7 @@ import { connection } from 'next/server'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Sidebar from '@/components/sidebar/Sidebar'
+import { ToastProvider } from '@/components/ui/Toast'
 
 export const instant = false
 
@@ -34,17 +35,19 @@ export default async function PanelLayout({ children }: PanelLayoutProps) {
   }
 
   return (
-    <div
-      className="flex min-h-screen"
-      style={{ '--color-accent': store.accent_color } as React.CSSProperties}
-    >
-      <Sidebar storeName={store.name} userEmail={user.email ?? ''} />
+    <ToastProvider>
+      <div
+        className="flex min-h-screen"
+        style={{ '--color-accent': store.accent_color } as React.CSSProperties}
+      >
+        <Sidebar storeName={store.name} userEmail={user.email ?? ''} />
 
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-0 pl-0">
-        {/* Espaciado para el botón hamburguesa en mobile */}
-        <div className="lg:hidden h-16" />
-        <main className="flex-1 p-6">{children}</main>
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Espaciado para el botón hamburguesa en mobile */}
+          <div className="lg:hidden h-16" />
+          <main className="flex-1 p-6">{children}</main>
+        </div>
       </div>
-    </div>
+    </ToastProvider>
   )
 }

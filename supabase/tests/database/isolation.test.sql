@@ -15,7 +15,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(55);   -- total de assertions
+SELECT plan(58);   -- total de assertions
 
 -- =====================
 -- Setup: dos tiendas, dos usuarios, datos de ejemplo
@@ -560,6 +560,53 @@ SELECT throws_ok(
       AND store_id = '20000000-0000-0000-0000-000000000001'$$,
   'P0001', NULL,
   '55. Borrar el único owner directamente sigue fallando (protect_last_owner intacto)'
+);
+
+-- =====================
+-- PARTE 13 — Unicidad de slug por ámbito en categories (tests 56-58)
+-- Verifica que los dos índices únicos parciales de la migración 004
+-- permitan el mismo slug bajo padres distintos pero lo bloqueen entre hermanos.
+-- =====================
+RESET role;
+
+-- Setup: dos categorías raíz en Tienda A para usarlas como padres
+INSERT INTO public.categories (id, store_id, name, slug)
+VALUES
+  ('30000000-0000-0000-0001-000000000010', '20000000-0000-0000-0000-000000000001', 'Padre X', 'padre-x'),
+  ('30000000-0000-0000-0001-000000000011', '20000000-0000-0000-0000-000000000001', 'Padre Y', 'padre-y');
+
+-- Hijo existente bajo Padre X con slug 'bullpadel' (base para tests 56-57)
+INSERT INTO public.categories (id, store_id, parent_id, name, slug)
+VALUES ('30000000-0000-0000-0001-000000000012',
+        '20000000-0000-0000-0000-000000000001',
+        '30000000-0000-0000-0001-000000000010',
+        'Bullpadel', 'bullpadel');
+
+-- 56. Mismo slug bajo un padre distinto → debe funcionar
+SELECT lives_ok(
+  $$INSERT INTO public.categories (store_id, parent_id, name, slug)
+    VALUES ('20000000-0000-0000-0000-000000000001',
+            '30000000-0000-0000-0001-000000000011',
+            'Bullpadel', 'bullpadel')$$,
+  '56. Mismo slug bajo padres distintos es válido (uq_categories_child_slug es por parent_id)'
+);
+
+-- 57. Slug repetido bajo el mismo padre → debe fallar
+SELECT throws_ok(
+  $$INSERT INTO public.categories (store_id, parent_id, name, slug)
+    VALUES ('20000000-0000-0000-0000-000000000001',
+            '30000000-0000-0000-0001-000000000010',
+            'Bullpadel Dup', 'bullpadel')$$,
+  '23505', NULL,
+  '57. Slug duplicado bajo el mismo padre falla (uq_categories_child_slug)'
+);
+
+-- 58. Dos raíces con el mismo slug en la misma tienda → debe fallar
+SELECT throws_ok(
+  $$INSERT INTO public.categories (store_id, name, slug)
+    VALUES ('20000000-0000-0000-0000-000000000001', 'Padre X Dup', 'padre-x')$$,
+  '23505', NULL,
+  '58. Slug duplicado en raíz falla (uq_categories_root_slug)'
 );
 
 SELECT * FROM finish();

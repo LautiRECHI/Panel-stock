@@ -11,7 +11,13 @@
       "Bash(npx @next/codemod@canary middleware-to-proxy .)",
       "Bash(npx @next/codemod@canary middleware-to-proxy . --force)",
       "Bash(xargs grep -l \"ProxyConfig\\\\|proxy-types\")",
-      "Bash(docker info *)"
+      "Bash(docker info *)",
+      "Bash(ls src/components/)",
+      "Bash(ls src/lib/)",
+      "Bash(npx tsc *)",
+      "Bash(npx supabase *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
