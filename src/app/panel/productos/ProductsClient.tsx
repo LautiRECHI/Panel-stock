@@ -180,7 +180,7 @@ export default function ProductsClient({
               <Link
                 key={tab.label}
                 href={buildUrl({ status: tab.status, q: currentSearch, cat: currentCategoryId, page: 1 })}
-                className={`flex-shrink-0 px-3 h-9 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 ${
+                className={`flex-shrink-0 px-3 h-11 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 ${
                   isActive
                     ? 'bg-foreground text-white'
                     : 'bg-card border border-border text-foreground hover:bg-surface'
@@ -318,7 +318,7 @@ export default function ProductsClient({
                         <div className="flex items-center justify-end gap-1">
                           <Link
                             href={`/panel/productos/${product.id}`}
-                            className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-foreground hover:bg-surface transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40"
+                            className="w-11 h-11 flex items-center justify-center rounded-lg text-muted hover:text-foreground hover:bg-surface transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40"
                             aria-label={`Editar ${product.name}`}
                           >
                             <Pencil className="w-4 h-4" aria-hidden="true" />
@@ -327,7 +327,7 @@ export default function ProductsClient({
                             type="button"
                             onClick={() => openArchiveModal(product)}
                             disabled={isPending}
-                            className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-stock-none hover:bg-stock-none-bg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stock-none/40 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="w-11 h-11 flex items-center justify-center rounded-lg text-muted hover:text-stock-none hover:bg-stock-none-bg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stock-none/40 disabled:opacity-30 disabled:cursor-not-allowed"
                             aria-label={`Archivar ${product.name}`}
                           >
                             <Archive className="w-4 h-4" aria-hidden="true" />
@@ -405,7 +405,7 @@ export default function ProductsClient({
                   href={buildUrl({ status: currentStatus, q: currentSearch, cat: currentCategoryId, page: page - 1 })}
                   aria-disabled={page <= 1}
                   tabIndex={page <= 1 ? -1 : undefined}
-                  className={`h-9 px-3 flex items-center gap-1 rounded-input border border-border bg-card text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 ${
+                  className={`h-11 px-3 flex items-center gap-1 rounded-input border border-border bg-card text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 ${
                     page <= 1 ? 'opacity-40 pointer-events-none' : 'hover:bg-surface text-foreground'
                   }`}
                 >
@@ -416,7 +416,7 @@ export default function ProductsClient({
                   href={buildUrl({ status: currentStatus, q: currentSearch, cat: currentCategoryId, page: page + 1 })}
                   aria-disabled={page >= totalPages}
                   tabIndex={page >= totalPages ? -1 : undefined}
-                  className={`h-9 px-3 flex items-center gap-1 rounded-input border border-border bg-card text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 ${
+                  className={`h-11 px-3 flex items-center gap-1 rounded-input border border-border bg-card text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 ${
                     page >= totalPages ? 'opacity-40 pointer-events-none' : 'hover:bg-surface text-foreground'
                   }`}
                 >
