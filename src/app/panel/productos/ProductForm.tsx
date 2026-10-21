@@ -3,18 +3,22 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import type { ProductWithVariant } from '@/lib/products-utils'
+import type { ProductFull } from '@/lib/products-utils'
 import type { CategoryNode } from '@/lib/categories'
-import { formatPrice } from '@/lib/products-utils'
+import { formatPrice, parsePrice } from '@/lib/products-utils'
 import { createProduct, updateProduct } from './actions'
+import { uploadPhotos } from './photos-actions'
+import { upsertVariants, setDefaultVariantStockZero } from './variants-actions'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Textarea from '@/components/ui/Textarea'
 import Select from '@/components/ui/Select'
 import { useToast } from '@/components/ui/Toast'
+import PhotosSection, { type PendingPhoto } from './PhotosSection'
+import VariantsSection, { type VariantRowData } from './VariantsSection'
 
 interface Props {
-  product?: ProductWithVariant
+  product?: ProductFull
   categories: CategoryNode[]
 }
 
@@ -29,10 +33,12 @@ export default function ProductForm({ product, categories }: Props) {
 
   const [name, setName] = useState(product?.name ?? '')
   const [priceRaw, setPriceRaw] = useState(product ? formatPrice(product.price) : '')
-  const [stock, setStock] = useState(product?.stock ?? 0)
   const [description, setDescription] = useState(product?.description ?? '')
   const [brand, setBrand] = useState(product?.brand ?? '')
   const [sku, setSku] = useState(product?.default_sku ?? '')
+
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([])
+  const [variantRows, setVariantRows] = useState<VariantRowData[]>([])
 
   const findCategorySelection = (): { rootId: string; subId: string } => {
     if (!product?.category_id) return { rootId: '', subId: '' }
@@ -67,8 +73,10 @@ export default function ProductForm({ product, categories }: Props) {
     setFormError(null)
     startTransition(async () => {
       const categoryId = effectiveCategoryId()
+      const hasVariantsEnabled = variantRows.some(r => Object.keys(r.attributes).length > 0)
 
       if (isEdit && product) {
+        // Actualizar metadatos del producto
         const res = await updateProduct({
           id: product.id,
           name,
@@ -78,15 +86,99 @@ export default function ProductForm({ product, categories }: Props) {
           status,
           categoryId,
           sku,
-          stock,
-          variantId: product.default_variant_id || undefined,
         })
         if (!res.success) { setFormError(res.error); return }
+
+        // Subir fotos pendientes
+        if (pendingPhotos.length > 0) {
+          const fd = new FormData()
+          for (const p of pendingPhotos) {
+            const file = new File([p.blob], `${crypto.randomUUID()}.${p.ext}`, { type: p.mimeType })
+            fd.append('photos', file)
+          }
+          const photoRes = await uploadPhotos(product.id, fd)
+          if (photoRes.failed.length > 0) {
+            toast(`Se subieron ${photoRes.uploaded} fotos. Fallaron: ${photoRes.failed.join(', ')}`, 'warning')
+          }
+        }
+
+        // Upsert de variantes si hay datos
+        if (variantRows.length > 0 || hasVariantsEnabled) {
+          // Si se está convirtiendo de simple a variantes, resetear stock del default
+          const isConverting = !product.has_variants && hasVariantsEnabled
+          if (isConverting && product.default_variant_id && product.total_stock > 0) {
+            await setDefaultVariantStockZero(product.default_variant_id, 'conversión a variantes')
+          }
+
+          if (variantRows.length > 0) {
+            const varRes = await upsertVariants(
+              product.id,
+              variantRows.map(r => ({
+                id: r.id,
+                sku: r.sku,
+                attributes: r.attributes,
+                price: r.priceRaw.trim() || null,
+                stock: r.stock,
+              })),
+              'edición de producto'
+            )
+            if (!varRes.success) { setFormError(varRes.error); return }
+          }
+        }
+
         toast('Producto actualizado', 'success')
         router.push('/panel/productos')
       } else {
-        const res = await createProduct({ name, priceRaw, stock, description, brand, status, categoryId, sku })
+        // Crear producto
+        const initialStock = hasVariantsEnabled ? 0 : (variantRows[0]?.stock ?? 0)
+
+        const res = await createProduct({
+          name,
+          priceRaw,
+          stock: initialStock,
+          description,
+          brand,
+          status,
+          categoryId,
+          sku,
+        })
         if (!res.success) { setFormError(res.error); return }
+
+        const productId = res.productId!
+
+        // Subir fotos
+        if (pendingPhotos.length > 0) {
+          const fd = new FormData()
+          for (const p of pendingPhotos) {
+            const file = new File([p.blob], `${crypto.randomUUID()}.${p.ext}`, { type: p.mimeType })
+            fd.append('photos', file)
+          }
+          const photoRes = await uploadPhotos(productId, fd)
+          if (photoRes.failed.length > 0) {
+            toast(`Se subieron ${photoRes.uploaded} fotos. Fallaron: ${photoRes.failed.join(', ')}`, 'warning')
+          }
+        }
+
+        // Upsert de variantes si hay opciones
+        if (hasVariantsEnabled && variantRows.length > 0) {
+          const varRes = await upsertVariants(
+            productId,
+            variantRows.map(r => ({
+              sku: r.sku,
+              attributes: r.attributes,
+              price: r.priceRaw.trim() || null,
+              stock: r.stock,
+            })),
+            'creación de producto'
+          )
+          if (!varRes.success) {
+            // El producto fue creado pero las variantes fallaron
+            toast('Producto creado, pero no se pudieron guardar las variantes.', 'warning')
+            router.push(`/panel/productos/${productId}`)
+            return
+          }
+        }
+
         toast('Producto creado', 'success')
         router.push('/panel/productos')
       }
@@ -125,20 +217,6 @@ export default function ProductForm({ product, categories }: Props) {
             required
             hint="Formato: 89.999,00"
           />
-
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="prod-stock" className="text-sm font-medium text-foreground">
-              Stock
-            </label>
-            <input
-              id="prod-stock"
-              type="number"
-              value={stock}
-              onChange={e => setStock(Math.max(0, parseInt(e.target.value, 10) || 0))}
-              min={0}
-              className="h-11 px-3 rounded-input border border-border bg-white text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground/40 transition-colors"
-            />
-          </div>
         </div>
 
         <Textarea
@@ -218,26 +296,20 @@ export default function ProductForm({ product, categories }: Props) {
         )}
       </section>
 
-      {/* Próximamente */}
-      <section className="bg-card rounded-card border border-border p-5 opacity-50 pointer-events-none select-none">
-        <div className="flex items-center gap-2 mb-1">
-          <h2 className="text-sm font-semibold text-foreground">Fotos</h2>
-          <span className="text-[10px] font-semibold uppercase tracking-wide bg-border text-muted px-1.5 py-0.5 rounded">
-            Próximamente
-          </span>
-        </div>
-        <p className="text-sm text-muted">La carga de fotos estará disponible próximamente.</p>
-      </section>
+      {/* Fotos */}
+      <PhotosSection
+        productId={product?.id}
+        initialImages={product?.images ?? []}
+        onPendingChange={setPendingPhotos}
+      />
 
-      <section className="bg-card rounded-card border border-border p-5 opacity-50 pointer-events-none select-none">
-        <div className="flex items-center gap-2 mb-1">
-          <h2 className="text-sm font-semibold text-foreground">Variantes</h2>
-          <span className="text-[10px] font-semibold uppercase tracking-wide bg-border text-muted px-1.5 py-0.5 rounded">
-            Próximamente
-          </span>
-        </div>
-        <p className="text-sm text-muted">Talle, color y otras variantes estarán disponibles próximamente.</p>
-      </section>
+      {/* Variantes */}
+      <VariantsSection
+        productId={product?.id}
+        initialVariants={product?.variants ?? []}
+        productPrice={parsePrice(priceRaw) || product?.price || 0}
+        onVariantsChange={setVariantRows}
+      />
 
       {/* Acciones */}
       <div className="flex flex-wrap items-center gap-3 pt-1 pb-8">

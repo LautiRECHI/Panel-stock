@@ -1,5 +1,5 @@
-// Utilities and types that are safe to import in both client and server components.
-// Server-side data access lives in @/lib/products (server-only).
+// Utilidades y tipos seguros para importar tanto en cliente como en servidor.
+// El acceso a datos del lado del servidor vive en @/lib/products (server-only).
 
 export const LOW_STOCK_THRESHOLD = 3
 
@@ -18,11 +18,39 @@ export type Product = {
   updated_at: string
 }
 
+export type ProductVariant = {
+  id: string
+  product_id: string
+  store_id: string
+  sku: string
+  attributes: Record<string, string>
+  price: number | null
+  stock: number
+  is_active: boolean
+}
+
+export type ProductImageData = {
+  id: string
+  path: string
+  position: number
+  url: string
+}
+
 export type ProductWithVariant = Product & {
   default_variant_id: string
   default_sku: string
-  stock: number
+  /** Suma del stock de todas las variantes activas */
+  total_stock: number
+  /** true si el producto tiene al menos una variante activa con attributes != '{}' */
+  has_variants: boolean
+  /** path de la imagen de portada (position=0), o null si no hay fotos */
+  cover_image_path: string | null
   category_name: string | null
+}
+
+export type ProductFull = ProductWithVariant & {
+  variants: ProductVariant[]
+  images: ProductImageData[]
 }
 
 export type ProductFilter = {

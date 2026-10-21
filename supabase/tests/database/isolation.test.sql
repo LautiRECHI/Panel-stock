@@ -15,7 +15,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(75);   -- total de assertions
+SELECT plan(85);   -- total de assertions
 
 -- =====================
 -- Setup: dos tiendas, dos usuarios, datos de ejemplo
@@ -802,6 +802,156 @@ SELECT throws_ok(
   $$SELECT public.set_stock('50000000-0000-0000-0003-000000000001', 1, 'intruso')$$,
   'P0002', NULL,
   '75. Usuario A no puede set_stock en variante de otra tienda (RLS → P0002)'
+);
+
+-- =====================
+-- PARTE 16 — Storage INSERT policies (tests 76-79)
+-- Verifica que las políticas de INSERT en storage.objects respetan el aislamiento.
+-- =====================
+RESET role;
+
+-- Usar Tienda A (ya existe, Store B fue borrada en test 54, Tienda C creada en parte 14)
+-- Usuario A es miembro de Tienda A
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- 76. Miembro A puede INSERT objeto en su propia carpeta
+SELECT lives_ok(
+  $$INSERT INTO storage.objects (id, bucket_id, name, owner_id)
+    VALUES (
+      '70000000-0000-0000-0001-000000000010',
+      'product-images',
+      '20000000-0000-0000-0000-000000000001/test-insert.jpg',
+      '10000000-0000-0000-0000-000000000001'
+    )$$,
+  '76. Miembro A puede INSERT objeto en su propia carpeta'
+);
+
+-- 77. Miembro A NO puede INSERT en carpeta de otra tienda (42501)
+SELECT throws_ok(
+  $$INSERT INTO storage.objects (id, bucket_id, name, owner_id)
+    VALUES (
+      '70000000-0000-0000-0003-000000000010',
+      'product-images',
+      '20000000-0000-0000-0000-000000000003/intruso.jpg',
+      '10000000-0000-0000-0000-000000000001'
+    )$$,
+  '42501', NULL,
+  '77. Miembro A NO puede INSERT en carpeta de otra tienda (42501)'
+);
+
+-- 78. Miembro A NO puede INSERT con ruta malformada (primer segmento no es su store_id)
+SELECT throws_ok(
+  $$INSERT INTO storage.objects (id, bucket_id, name, owner_id)
+    VALUES (
+      '70000000-0000-0000-0001-000000000011',
+      'product-images',
+      'invalid-path/foto.jpg',
+      '10000000-0000-0000-0000-000000000001'
+    )$$,
+  '42501', NULL,
+  '78. Miembro A NO puede INSERT con ruta malformada (42501)'
+);
+
+-- 79. Anon NO puede INSERT en storage (42501)
+SET LOCAL role TO anon;
+SELECT throws_ok(
+  $$INSERT INTO storage.objects (id, bucket_id, name, owner_id)
+    VALUES (
+      '70000000-0000-0000-0001-000000000012',
+      'product-images',
+      '20000000-0000-0000-0000-000000000001/anon-intento.jpg',
+      NULL
+    )$$,
+  '42501', NULL,
+  '79. Anon NO puede INSERT en storage (42501)'
+);
+
+-- =====================
+-- PARTE 17 — is_active + upsert_variants (tests 80-85)
+-- =====================
+RESET role;
+
+-- Setup: Producto D en Tienda A para los tests de upsert_variants
+INSERT INTO public.products (id, store_id, name, slug, price, status)
+VALUES ('40000000-0000-0000-0001-000000000002', '20000000-0000-0000-0000-000000000001',
+        'Producto D', 'producto-d', 150, 'active')
+ON CONFLICT (id) DO NOTHING;
+
+-- Variante default de Producto D
+INSERT INTO public.product_variants (id, store_id, product_id, sku, attributes, stock)
+VALUES ('50000000-0000-0000-0001-000000000002', '20000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0001-000000000002', 'SKU-D-DEFAULT', '{}', 0)
+ON CONFLICT (id) DO NOTHING;
+
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- 80. upsert_variants como usuario A inserta una nueva variante
+SELECT lives_ok(
+  $$SELECT public.upsert_variants(
+      '20000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0001-000000000002',
+      '[{"sku":"SKU-D-TALLE-M","attributes":{"Talle":"M"},"price":null,"stock":5}]'::jsonb,
+      'test upsert insert'
+    )$$,
+  '80. upsert_variants como usuario A inserta nueva variante'
+);
+
+-- 81. La nueva variante existe con is_active=true
+SELECT ok(
+  (SELECT count(*) = 1 FROM public.product_variants
+   WHERE sku = 'SKU-D-TALLE-M'
+     AND store_id = '20000000-0000-0000-0000-000000000001'
+     AND is_active = true
+     AND stock = 5),
+  '81. La nueva variante existe con is_active=true y stock=5'
+);
+
+-- 82. upsert_variants desactiva variante M (no incluida en la segunda llamada)
+-- Enviamos solo SKU-D-TALLE-L sin id; la variante M que fue insertada en test 80
+-- no está en la lista → debe quedar is_active=false
+SELECT lives_ok(
+  $$SELECT public.upsert_variants(
+      '20000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0001-000000000002',
+      '[{"sku":"SKU-D-TALLE-L","attributes":{"Talle":"L"},"price":null,"stock":3}]'::jsonb,
+      'test upsert deactivate'
+    )$$,
+  '82. upsert_variants: segunda llamada, variante M no incluida queda inactiva'
+);
+
+SELECT ok(
+  (SELECT count(*) = 1 FROM public.product_variants
+   WHERE sku = 'SKU-D-TALLE-M'
+     AND store_id = '20000000-0000-0000-0000-000000000001'
+     AND is_active = false),
+  '83. La variante M quedó con is_active=false tras no incluirla en upsert'
+);
+
+-- 84. El cambio de stock vía upsert_variants crea un movimiento de auditoría
+SELECT ok(
+  (SELECT count(*) >= 1 FROM public.stock_movements sm
+   JOIN public.product_variants pv ON pv.id = sm.variant_id
+   WHERE pv.sku = 'SKU-D-TALLE-L'
+     AND sm.reason = 'test upsert deactivate'
+     AND sm.delta = 3),
+  '84. upsert_variants con stock crea movimiento de auditoría'
+);
+
+-- 85. Anon no puede ejecutar upsert_variants (42501)
+SET LOCAL role TO anon;
+SELECT throws_ok(
+  $$SELECT public.upsert_variants(
+      '20000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0001-000000000002',
+      '[{"sku":"SKU-ANON","attributes":{},"price":null,"stock":0}]'::jsonb,
+      'anon intento'
+    )$$,
+  '42501', NULL,
+  '85. Anon no puede ejecutar upsert_variants (42501)'
 );
 
 SELECT * FROM finish();

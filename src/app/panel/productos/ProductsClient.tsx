@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { Package, Plus, Search, Pencil, Archive, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ProductWithVariant, ProductFilter } from '@/lib/products-utils'
 import type { Category } from '@/lib/categories'
@@ -64,6 +65,42 @@ function statusChip(status: ProductWithVariant['status']) {
   return <StatusChip status="neutral" label="Archivado" />
 }
 
+function ProductThumbnail({ path, name }: { path: string | null; name: string }) {
+  if (!path) {
+    return (
+      <div className="w-10 h-10 rounded-lg bg-surface border border-border flex items-center justify-center flex-shrink-0">
+        <Package className="w-4 h-4 text-muted" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  // Build the public URL from storage path
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+  const url = supabaseUrl
+    ? `${supabaseUrl}/storage/v1/object/public/product-images/${path}`
+    : ''
+
+  if (!url) {
+    return (
+      <div className="w-10 h-10 rounded-lg bg-surface border border-border flex items-center justify-center flex-shrink-0">
+        <Package className="w-4 h-4 text-muted" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-10 h-10 rounded-lg overflow-hidden border border-border flex-shrink-0">
+      <Image
+        src={url}
+        alt={name}
+        width={40}
+        height={40}
+        className="w-full h-full object-cover"
+      />
+    </div>
+  )
+}
+
 export default function ProductsClient({
   products,
   total,
@@ -78,11 +115,11 @@ export default function ProductsClient({
   const searchRef = useRef<HTMLInputElement>(null)
   const [isPending, startTransition] = useTransition()
 
-  // Optimistic stock map: variantId → stock
+  // Optimistic stock map: variantId → stock (only for simple products)
   const [stockMap, setStockMap] = useState<Record<string, number>>(() => {
     const m: Record<string, number> = {}
     for (const p of products) {
-      if (p.default_variant_id) m[p.default_variant_id] = p.stock
+      if (p.default_variant_id && !p.has_variants) m[p.default_variant_id] = p.total_stock
     }
     return m
   })
@@ -105,8 +142,9 @@ export default function ProductsClient({
     router.push(buildUrl({ status: currentStatus, q: currentSearch, cat: cat || undefined, page: 1 }))
   }
 
-  function getStock(variantId: string, fallback: number): number {
-    return stockMap[variantId] ?? fallback
+  function getStock(product: ProductWithVariant): number {
+    if (product.has_variants) return product.total_stock
+    return stockMap[product.default_variant_id] ?? product.total_stock
   }
 
   function handleStepperChange(variantId: string, currentStock: number, newValue: number) {
@@ -283,7 +321,7 @@ export default function ProductsClient({
               </thead>
               <tbody>
                 {products.map((product, idx) => {
-                  const currentStock = getStock(product.default_variant_id, product.stock)
+                  const currentStock = getStock(product)
                   const hasBorder = idx < products.length - 1
                   return (
                     <tr
@@ -291,8 +329,13 @@ export default function ProductsClient({
                       className={`${hasBorder ? 'border-b border-border' : ''} hover:bg-surface/50 transition-colors`}
                     >
                       <td className="px-4 py-3">
-                        <p className="font-medium text-foreground truncate max-w-[200px]">{product.name}</p>
-                        <p className="text-xs text-muted font-mono hidden sm:block">{product.slug}</p>
+                        <div className="flex items-center gap-3">
+                          <ProductThumbnail path={product.cover_image_path} name={product.name} />
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground truncate max-w-[180px]">{product.name}</p>
+                            <p className="text-xs text-muted font-mono hidden sm:block">{product.slug}</p>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell text-muted">
                         {product.category_name ?? '—'}
@@ -306,12 +349,21 @@ export default function ProductsClient({
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
                           {stockChip(currentStock)}
-                          <Stepper
-                            value={currentStock}
-                            onChange={v => handleStepperChange(product.default_variant_id, currentStock, v)}
-                            min={0}
-                            disabled={isPending || !product.default_variant_id}
-                          />
+                          {product.has_variants ? (
+                            <Link
+                              href={`/panel/productos/${product.id}`}
+                              className="text-xs text-muted underline hover:text-foreground transition-colors whitespace-nowrap"
+                            >
+                              Ver variantes
+                            </Link>
+                          ) : (
+                            <Stepper
+                              value={currentStock}
+                              onChange={v => handleStepperChange(product.default_variant_id, currentStock, v)}
+                              min={0}
+                              disabled={isPending || !product.default_variant_id}
+                            />
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -344,15 +396,18 @@ export default function ProductsClient({
           {/* Mobile: tarjetas */}
           <div className="md:hidden space-y-3">
             {products.map(product => {
-              const currentStock = getStock(product.default_variant_id, product.stock)
+              const currentStock = getStock(product)
               return (
                 <div key={product.id} className="bg-card rounded-card border border-border p-4">
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-foreground truncate">{product.name}</p>
-                      {product.category_name && (
-                        <p className="text-xs text-muted mt-0.5">{product.category_name}</p>
-                      )}
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <ProductThumbnail path={product.cover_image_path} name={product.name} />
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground truncate">{product.name}</p>
+                        {product.category_name && (
+                          <p className="text-xs text-muted mt-0.5">{product.category_name}</p>
+                        )}
+                      </div>
                     </div>
                     <div className="flex-shrink-0">{statusChip(product.status)}</div>
                   </div>
@@ -364,12 +419,21 @@ export default function ProductsClient({
                       </p>
                       <div className="mt-1">{stockChip(currentStock)}</div>
                     </div>
-                    <Stepper
-                      value={currentStock}
-                      onChange={v => handleStepperChange(product.default_variant_id, currentStock, v)}
-                      min={0}
-                      disabled={isPending || !product.default_variant_id}
-                    />
+                    {product.has_variants ? (
+                      <Link
+                        href={`/panel/productos/${product.id}`}
+                        className="text-xs text-muted underline hover:text-foreground transition-colors"
+                      >
+                        Ver variantes
+                      </Link>
+                    ) : (
+                      <Stepper
+                        value={currentStock}
+                        onChange={v => handleStepperChange(product.default_variant_id, currentStock, v)}
+                        min={0}
+                        disabled={isPending || !product.default_variant_id}
+                      />
+                    )}
                   </div>
 
                   <div className="flex gap-2 mt-3 pt-3 border-t border-border">

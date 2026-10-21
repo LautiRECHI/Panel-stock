@@ -90,8 +90,6 @@ const updateSchema = z.object({
   status: z.enum(['draft', 'active']),
   categoryId: z.string().uuid().nullable().optional(),
   sku: z.string().max(100).optional(),
-  stock: z.number().int().min(0, 'El stock no puede ser negativo').optional(),
-  variantId: z.string().uuid().optional(),
 })
 
 export async function updateProduct(
@@ -103,8 +101,7 @@ export async function updateProduct(
   const storeId = await resolveStoreId()
   if (!storeId) return { success: false, error: 'No autenticado.' }
 
-  const { id, name, priceRaw, description, brand, status, categoryId, sku, stock, variantId } =
-    parsed.data
+  const { id, name, priceRaw, description, brand, status, categoryId, sku } = parsed.data
   const price = parsePrice(priceRaw)
   const supabase = await createClient()
 
@@ -134,15 +131,6 @@ export async function updateProduct(
     if (skuError?.code === '23505') {
       return { success: false, error: 'El SKU ya está en uso. Ingresá uno diferente.' }
     }
-  }
-
-  if (stock !== undefined && variantId) {
-    const { error: stockError } = await supabase.rpc('set_stock', {
-      p_variant_id: variantId,
-      p_new_stock: stock,
-      p_reason: 'edición de producto',
-    })
-    if (stockError) return { success: false, error: 'No se pudo actualizar el stock.' }
   }
 
   revalidatePath('/panel/productos')

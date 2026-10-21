@@ -1,0 +1,109 @@
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
+import { createClient } from '@/lib/supabase/server'
+import type { ActionResult } from './actions'
+
+async function resolveStoreId(): Promise<string | null> {
+  const supabase = await createClient()
+  const { data: stores } = await supabase.from('stores').select('id').limit(1)
+  return (stores as { id: string }[] | null)?.[0]?.id ?? null
+}
+
+const variantRowSchema = z.object({
+  id: z.string().uuid().optional(),
+  sku: z.string().min(1, 'El SKU no puede estar vacío'),
+  attributes: z.record(z.string(), z.string()),
+  price: z.string().nullable(),
+  stock: z.number().int().min(0, 'El stock no puede ser negativo'),
+})
+
+const upsertSchema = z.object({
+  productId: z.string().uuid('ID de producto inválido'),
+  variants: z.array(variantRowSchema),
+  reason: z.string().min(1),
+})
+
+export async function upsertVariants(
+  productId: string,
+  variants: Array<{
+    id?: string
+    sku: string
+    attributes: Record<string, string>
+    price: string | null
+    stock: number
+  }>,
+  reason: string
+): Promise<ActionResult> {
+  const parsed = upsertSchema.safeParse({ productId, variants, reason })
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0].message }
+  }
+
+  const storeId = await resolveStoreId()
+  if (!storeId) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  // Convertir a formato compatible con la función SQL
+  const rpcVariants = parsed.data.variants.map(v => ({
+    ...(v.id ? { id: v.id } : {}),
+    sku: v.sku,
+    attributes: v.attributes,
+    price: v.price,
+    stock: v.stock,
+  }))
+
+  const { error } = await supabase.rpc('upsert_variants', {
+    p_store_id: storeId,
+    p_product_id: productId,
+    p_variants: JSON.stringify(rpcVariants),
+    p_reason: reason,
+  })
+
+  if (error) {
+    if (error.code === 'P0002') {
+      return { success: false, error: 'No tenés acceso a estas variantes.' }
+    }
+    if (error.code === '23505') {
+      return { success: false, error: 'Un SKU ya está en uso. Cambialo e intentá de nuevo.' }
+    }
+    return { success: false, error: 'No se pudieron guardar las variantes.' }
+  }
+
+  revalidatePath('/panel/productos')
+  revalidatePath(`/panel/productos/${productId}`)
+  return { success: true }
+}
+
+export async function setDefaultVariantStockZero(
+  variantId: string,
+  reason: string
+): Promise<ActionResult> {
+  const parsed = z.object({
+    variantId: z.string().uuid(),
+    reason: z.string().min(1),
+  }).safeParse({ variantId, reason })
+
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0].message }
+  }
+
+  const storeId = await resolveStoreId()
+  if (!storeId) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase.rpc('set_stock', {
+    p_variant_id: variantId,
+    p_new_stock: 0,
+    p_reason: reason,
+  })
+
+  if (error) {
+    return { success: false, error: 'No se pudo resetear el stock.' }
+  }
+
+  return { success: true }
+}
