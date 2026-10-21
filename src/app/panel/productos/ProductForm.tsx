@@ -92,8 +92,8 @@ export default function ProductForm({ product, categories }: Props) {
         })
         if (!res.success) { setFormError(res.error); return }
 
-        // Stock para productos simples
-        if (!variantsEnabled && product.default_variant_id) {
+        // Stock para productos simples: solo si cambió respecto al valor original
+        if (!variantsEnabled && product.default_variant_id && stock !== defaultVariantStock) {
           const stockRes = await setVariantStock(product.default_variant_id, stock, 'edición de producto')
           if (!stockRes.success) { setFormError(stockRes.error); return }
         }
@@ -127,7 +127,7 @@ export default function ProductForm({ product, categories }: Props) {
                 price: r.priceRaw.trim() || null,
                 stock: r.stock,
               })),
-              'edición de producto'
+              isConverting ? 'conversión a variantes' : 'edición de variantes'
             )
             if (!varRes.success) { setFormError(varRes.error); return }
           }

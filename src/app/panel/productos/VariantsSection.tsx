@@ -263,20 +263,16 @@ export default function VariantsSection({
               {opt.values.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {opt.values.map((val, valIdx) => (
-                    <span
+                    <button
                       key={valIdx}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-card border border-border rounded-full text-sm text-foreground"
+                      type="button"
+                      onClick={() => removeOptionValue(optIdx, valIdx)}
+                      aria-label={`Eliminar ${val}`}
+                      className="inline-flex items-center gap-1.5 px-3 h-11 bg-card border border-border rounded-full text-sm text-foreground hover:bg-stock-none-bg hover:text-stock-none hover:border-stock-none/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40"
                     >
                       {val}
-                      <button
-                        type="button"
-                        onClick={() => removeOptionValue(optIdx, valIdx)}
-                        aria-label={`Eliminar ${val}`}
-                        className="w-4 h-4 flex items-center justify-center text-muted hover:text-stock-none transition-colors focus:outline-none"
-                      >
-                        <X className="w-3 h-3" aria-hidden="true" />
-                      </button>
-                    </span>
+                      <X className="w-3 h-3" aria-hidden="true" />
+                    </button>
                   ))}
                 </div>
               )}
