@@ -55,45 +55,28 @@ export async function createProduct(
 
   const finalSku = sku?.trim() || generateSku(name)
 
-  const { data: product, error: productError } = await supabase
-    .from('products')
-    .insert({
-      store_id: storeId,
-      name: name.trim(),
-      slug,
-      description: description?.trim() || null,
-      brand: brand?.trim() || null,
-      price,
-      status,
-      category_id: categoryId ?? null,
-    })
-    .select('id')
-    .single()
-
-  if (productError || !product) {
-    return { success: false, error: 'No se pudo crear el producto.' }
-  }
-
-  const productId = (product as { id: string }).id
-
-  const { error: variantError } = await supabase.from('product_variants').insert({
-    store_id: storeId,
-    product_id: productId,
-    sku: finalSku,
-    attributes: {},
-    stock,
+  const { data: productId, error } = await supabase.rpc('create_product', {
+    p_store_id: storeId,
+    p_name: name.trim(),
+    p_slug: slug,
+    p_price: price,
+    p_status: status,
+    p_description: description?.trim() || null,
+    p_brand: brand?.trim() || null,
+    p_category_id: categoryId ?? null,
+    p_sku: finalSku,
+    p_stock: stock,
   })
 
-  if (variantError) {
-    await supabase.from('products').delete().eq('id', productId).eq('store_id', storeId)
-    if (variantError.code === '23505') {
+  if (error) {
+    if (error.code === '23505') {
       return { success: false, error: 'El SKU ya está en uso. Ingresá uno diferente.' }
     }
     return { success: false, error: 'No se pudo crear el producto.' }
   }
 
   revalidatePath('/panel/productos')
-  return { success: true, productId }
+  return { success: true, productId: productId as string }
 }
 
 // ─── Actualizar ───────────────────────────────────────────────────────────────

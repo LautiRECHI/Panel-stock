@@ -15,7 +15,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(67);   -- total de assertions
+SELECT plan(75);   -- total de assertions
 
 -- =====================
 -- Setup: dos tiendas, dos usuarios, datos de ejemplo
@@ -709,6 +709,99 @@ SELECT throws_ok(
   $$SELECT public.set_stock('50000000-0000-0000-0001-000000000001', 1, 'test')$$,
   '42501', NULL,
   '67. Anon no puede ejecutar set_stock (42501)'
+);
+
+-- =====================
+-- PARTE 15 — create_product atómico (tests 68-73) y set_stock extra (74-75)
+-- =====================
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- 68. create_product inserta producto y variante en una sola llamada
+SELECT lives_ok(
+  $$SELECT public.create_product(
+      '20000000-0000-0000-0000-000000000001',
+      'Producto Test Atómico',
+      'producto-test-atomico',
+      99.99,
+      'draft',
+      NULL, NULL, NULL,
+      'SKU-TEST-ATOMIC-001',
+      7
+    )$$,
+  '68. create_product crea producto con su variante por defecto'
+);
+
+-- 69. El producto existe en products
+SELECT ok(
+  (SELECT count(*) = 1 FROM public.products
+   WHERE slug = 'producto-test-atomico'
+     AND store_id = '20000000-0000-0000-0000-000000000001'),
+  '69. create_product: el producto existe en products'
+);
+
+-- 70. La variante por defecto existe con attributes = '{}'
+SELECT ok(
+  (SELECT count(*) = 1 FROM public.product_variants
+   WHERE sku = 'SKU-TEST-ATOMIC-001'
+     AND store_id = '20000000-0000-0000-0000-000000000001'
+     AND attributes = '{}'),
+  '70. create_product: variante por defecto existe con attributes vacíos'
+);
+
+-- 71. SKU duplicado → falla atómicamente (la función lanza 23505)
+SELECT throws_ok(
+  $$SELECT public.create_product(
+      '20000000-0000-0000-0000-000000000001',
+      'Producto Huérfano',
+      'producto-huerfano-test',
+      50.00,
+      'draft',
+      NULL, NULL, NULL,
+      'SKU-TEST-ATOMIC-001',
+      0
+    )$$,
+  '23505', NULL,
+  '71. create_product: SKU duplicado falla con 23505'
+);
+
+-- 72. Rollback atómico: el producto no quedó huérfano en la tabla
+SELECT ok(
+  (SELECT count(*) = 0 FROM public.products
+   WHERE slug = 'producto-huerfano-test'),
+  '72. create_product: rollback atómico, el producto no quedó huérfano'
+);
+
+-- 73. Anon no puede ejecutar create_product
+SET LOCAL role TO anon;
+SELECT throws_ok(
+  $$SELECT public.create_product(
+      '20000000-0000-0000-0000-000000000001',
+      'Intruso', 'intruso-anon', 1, 'draft',
+      NULL, NULL, NULL, 'SKU-INTRUSO-ANON', 0
+    )$$,
+  '42501', NULL,
+  '73. Anon no puede ejecutar create_product (42501)'
+);
+
+-- set_stock: valores negativos y aislamiento de tienda
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- 74. set_stock falla si el valor nuevo es negativo (CHECK stock >= 0 → 23514)
+SELECT throws_ok(
+  $$SELECT public.set_stock('50000000-0000-0000-0001-000000000001', -1, 'negativo')$$,
+  '23514', NULL,
+  '74. set_stock falla con valor negativo (CHECK constraint 23514)'
+);
+
+-- 75. Usuario A no puede set_stock en variante de Tienda C (RLS → P0002)
+SELECT throws_ok(
+  $$SELECT public.set_stock('50000000-0000-0000-0003-000000000001', 1, 'intruso')$$,
+  'P0002', NULL,
+  '75. Usuario A no puede set_stock en variante de otra tienda (RLS → P0002)'
 );
 
 SELECT * FROM finish();

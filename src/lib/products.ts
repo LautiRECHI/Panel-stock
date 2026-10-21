@@ -1,3 +1,4 @@
+import 'server-only'
 import { createClient } from '@/lib/supabase/server'
 import { LOW_STOCK_THRESHOLD } from '@/lib/products-utils'
 import type { Product, ProductWithVariant, ProductFilter } from '@/lib/products-utils'
