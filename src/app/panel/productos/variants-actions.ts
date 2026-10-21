@@ -77,14 +77,16 @@ export async function upsertVariants(
   return { success: true }
 }
 
-export async function setDefaultVariantStockZero(
+export async function setVariantStock(
   variantId: string,
+  newStock: number,
   reason: string
 ): Promise<ActionResult> {
   const parsed = z.object({
     variantId: z.string().uuid(),
+    newStock: z.number().int().min(0, 'El stock no puede ser negativo'),
     reason: z.string().min(1),
-  }).safeParse({ variantId, reason })
+  }).safeParse({ variantId, newStock, reason })
 
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0].message }
@@ -97,13 +99,20 @@ export async function setDefaultVariantStockZero(
 
   const { error } = await supabase.rpc('set_stock', {
     p_variant_id: variantId,
-    p_new_stock: 0,
+    p_new_stock: newStock,
     p_reason: reason,
   })
 
   if (error) {
-    return { success: false, error: 'No se pudo resetear el stock.' }
+    return { success: false, error: 'No se pudo actualizar el stock.' }
   }
 
   return { success: true }
+}
+
+export async function setDefaultVariantStockZero(
+  variantId: string,
+  reason: string
+): Promise<ActionResult> {
+  return setVariantStock(variantId, 0, reason)
 }

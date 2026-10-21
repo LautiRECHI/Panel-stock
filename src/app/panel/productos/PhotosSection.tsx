@@ -244,7 +244,7 @@ export default function PhotosSection({ productId, initialImages, onPendingChang
                 )}
 
                 {/* Controles (visibles en hover o en mobile siempre) */}
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between p-1 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity sm:flex">
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between p-1 bg-black/40 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                   <button
                     type="button"
                     aria-label="Mover a la izquierda"

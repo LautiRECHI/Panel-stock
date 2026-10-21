@@ -24,6 +24,7 @@ interface Props {
   initialVariants: ProductVariant[]
   productPrice: number
   onVariantsChange: (variants: VariantRowData[]) => void
+  onEnabledChange: (enabled: boolean) => void
 }
 
 function attrsKey(attrs: Record<string, string>): string {
@@ -77,6 +78,7 @@ export default function VariantsSection({
   initialVariants,
   productPrice,
   onVariantsChange,
+  onEnabledChange,
 }: Props) {
   const hasRealVariants = initialVariants.some(v => Object.keys(v.attributes).length > 0)
   const defaultVariant = initialVariants.find(v => Object.keys(v.attributes).length === 0)
@@ -127,6 +129,7 @@ export default function VariantsSection({
   function handleToggle() {
     const next = !enabled
     setEnabled(next)
+    onEnabledChange(next)
     if (!next) {
       setVariantRows([])
       onVariantsChange([])

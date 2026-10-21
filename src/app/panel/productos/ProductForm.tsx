@@ -8,7 +8,7 @@ import type { CategoryNode } from '@/lib/categories'
 import { formatPrice, parsePrice } from '@/lib/products-utils'
 import { createProduct, updateProduct } from './actions'
 import { uploadPhotos } from './photos-actions'
-import { upsertVariants, setDefaultVariantStockZero } from './variants-actions'
+import { upsertVariants, setDefaultVariantStockZero, setVariantStock } from './variants-actions'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Textarea from '@/components/ui/Textarea'
@@ -37,6 +37,11 @@ export default function ProductForm({ product, categories }: Props) {
   const [brand, setBrand] = useState(product?.brand ?? '')
   const [sku, setSku] = useState(product?.default_sku ?? '')
 
+  // Stock inicial para productos simples (sin variantes)
+  const defaultVariantStock = product?.variants?.find(v => Object.keys(v.attributes).length === 0)?.stock ?? 0
+  const [stock, setStock] = useState(!product?.has_variants ? defaultVariantStock : 0)
+
+  const [variantsEnabled, setVariantsEnabled] = useState(product?.has_variants ?? false)
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([])
   const [variantRows, setVariantRows] = useState<VariantRowData[]>([])
 
@@ -73,10 +78,8 @@ export default function ProductForm({ product, categories }: Props) {
     setFormError(null)
     startTransition(async () => {
       const categoryId = effectiveCategoryId()
-      const hasVariantsEnabled = variantRows.some(r => Object.keys(r.attributes).length > 0)
 
       if (isEdit && product) {
-        // Actualizar metadatos del producto
         const res = await updateProduct({
           id: product.id,
           name,
@@ -89,7 +92,13 @@ export default function ProductForm({ product, categories }: Props) {
         })
         if (!res.success) { setFormError(res.error); return }
 
-        // Subir fotos pendientes
+        // Stock para productos simples
+        if (!variantsEnabled && product.default_variant_id) {
+          const stockRes = await setVariantStock(product.default_variant_id, stock, 'edición de producto')
+          if (!stockRes.success) { setFormError(stockRes.error); return }
+        }
+
+        // Fotos pendientes
         if (pendingPhotos.length > 0) {
           const fd = new FormData()
           for (const p of pendingPhotos) {
@@ -102,14 +111,12 @@ export default function ProductForm({ product, categories }: Props) {
           }
         }
 
-        // Upsert de variantes si hay datos
-        if (variantRows.length > 0 || hasVariantsEnabled) {
-          // Si se está convirtiendo de simple a variantes, resetear stock del default
-          const isConverting = !product.has_variants && hasVariantsEnabled
+        // Variantes
+        if (variantsEnabled || variantRows.length > 0) {
+          const isConverting = !product.has_variants && variantsEnabled
           if (isConverting && product.default_variant_id && product.total_stock > 0) {
             await setDefaultVariantStockZero(product.default_variant_id, 'conversión a variantes')
           }
-
           if (variantRows.length > 0) {
             const varRes = await upsertVariants(
               product.id,
@@ -129,8 +136,7 @@ export default function ProductForm({ product, categories }: Props) {
         toast('Producto actualizado', 'success')
         router.push('/panel/productos')
       } else {
-        // Crear producto
-        const initialStock = hasVariantsEnabled ? 0 : (variantRows[0]?.stock ?? 0)
+        const initialStock = variantsEnabled ? 0 : stock
 
         const res = await createProduct({
           name,
@@ -146,7 +152,6 @@ export default function ProductForm({ product, categories }: Props) {
 
         const productId = res.productId!
 
-        // Subir fotos
         if (pendingPhotos.length > 0) {
           const fd = new FormData()
           for (const p of pendingPhotos) {
@@ -159,8 +164,7 @@ export default function ProductForm({ product, categories }: Props) {
           }
         }
 
-        // Upsert de variantes si hay opciones
-        if (hasVariantsEnabled && variantRows.length > 0) {
+        if (variantsEnabled && variantRows.length > 0) {
           const varRes = await upsertVariants(
             productId,
             variantRows.map(r => ({
@@ -172,7 +176,6 @@ export default function ProductForm({ product, categories }: Props) {
             'creación de producto'
           )
           if (!varRes.success) {
-            // El producto fue creado pero las variantes fallaron
             toast('Producto creado, pero no se pudieron guardar las variantes.', 'warning')
             router.push(`/panel/productos/${productId}`)
             return
@@ -217,6 +220,22 @@ export default function ProductForm({ product, categories }: Props) {
             required
             hint="Formato: 89.999,00"
           />
+
+          {!variantsEnabled && (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="prod-stock" className="text-sm font-medium text-foreground">
+                Stock
+              </label>
+              <input
+                id="prod-stock"
+                type="number"
+                value={stock}
+                onChange={e => setStock(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                min={0}
+                className="h-11 px-3 rounded-input border border-border bg-white text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground/40 transition-colors"
+              />
+            </div>
+          )}
         </div>
 
         <Textarea
@@ -309,6 +328,7 @@ export default function ProductForm({ product, categories }: Props) {
         initialVariants={product?.variants ?? []}
         productPrice={parsePrice(priceRaw) || product?.price || 0}
         onVariantsChange={setVariantRows}
+        onEnabledChange={setVariantsEnabled}
       />
 
       {/* Acciones */}
