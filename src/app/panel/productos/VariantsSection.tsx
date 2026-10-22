@@ -5,6 +5,8 @@ import { Plus, X } from 'lucide-react'
 import type { ProductVariant } from '@/lib/products-utils'
 import { formatPrice } from '@/lib/products-utils'
 import Input from '@/components/ui/Input'
+import Button from '@/components/ui/Button'
+import Modal from '@/components/ui/Modal'
 
 export type VariantRowData = {
   id?: string
@@ -18,6 +20,11 @@ interface OptionDef {
   name: string
   values: string[]
 }
+
+type RemovalPending =
+  | { kind: 'chip';   optIdx: number; valIdx: number; count: number; totalStock: number }
+  | { kind: 'option'; optIdx: number;                 count: number; totalStock: number }
+  | { kind: 'toggle';                                 count: number; totalStock: number }
 
 interface Props {
   productId?: string
@@ -65,13 +72,13 @@ function mergeRows(
     if (prev) return { ...prev, attributes: attrs }
     const label = Object.values(attrs).join('-').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12)
     const rand = Math.random().toString(36).slice(2, 6).toUpperCase()
-    return {
-      sku: label ? `${label}-${rand}` : rand,
-      attributes: attrs,
-      priceRaw: '',
-      stock: 0,
-    }
+    return { sku: label ? `${label}-${rand}` : rand, attributes: attrs, priceRaw: '', stock: 0 }
   })
+}
+
+function rowsWithStock(rows: VariantRowData[]): { count: number; totalStock: number } {
+  const matching = rows.filter(r => r.stock > 0)
+  return { count: matching.length, totalStock: matching.reduce((s, r) => s + r.stock, 0) }
 }
 
 export default function VariantsSection({
@@ -116,8 +123,8 @@ export default function VariantsSection({
   const [options, setOptions] = useState<OptionDef[]>(buildInitialOptions)
   const [variantRows, setVariantRows] = useState<VariantRowData[]>(buildInitialRows)
   const [newValueInputs, setNewValueInputs] = useState<string[]>(['', ''])
+  const [removalPending, setRemovalPending] = useState<RemovalPending | null>(null)
 
-  // Track previous options to detect changes without useEffect
   const prevOptionsRef = useRef<OptionDef[]>(options)
 
   function syncRows(newOptions: OptionDef[], currentRows: VariantRowData[]): VariantRowData[] {
@@ -126,21 +133,24 @@ export default function VariantsSection({
     return mergeRows(combos, currentRows)
   }
 
-  function handleToggle() {
-    const next = !enabled
-    setEnabled(next)
-    onEnabledChange(next)
-    if (!next) {
-      setVariantRows([])
-      onVariantsChange([])
-    } else {
-      const rows = syncRows(options, variantRows)
-      setVariantRows(rows)
-      onVariantsChange(rows)
-    }
+  // ── Acciones directas (sin guard) ───────────────────────────────────────────
+
+  function doToggleOff() {
+    setEnabled(false)
+    onEnabledChange(false)
+    setVariantRows([])
+    onVariantsChange([])
   }
 
-  function handleOptionsChange(newOptions: OptionDef[]) {
+  function doToggleOn() {
+    setEnabled(true)
+    onEnabledChange(true)
+    const rows = syncRows(options, variantRows)
+    setVariantRows(rows)
+    onVariantsChange(rows)
+  }
+
+  function applyOptionsChange(newOptions: OptionDef[]) {
     prevOptionsRef.current = newOptions
     setOptions(newOptions)
     if (enabled) {
@@ -150,8 +160,73 @@ export default function VariantsSection({
     }
   }
 
+  function doRemoveOptionValue(optIdx: number, valIdx: number) {
+    applyOptionsChange(
+      options.map((o, i) =>
+        i === optIdx ? { ...o, values: o.values.filter((_, vi) => vi !== valIdx) } : o
+      )
+    )
+  }
+
+  function doRemoveOption(optIdx: number) {
+    applyOptionsChange(options.filter((_, i) => i !== optIdx))
+    setNewValueInputs(prev => prev.filter((_, i) => i !== optIdx))
+  }
+
+  // ── Handlers con guard de stock ─────────────────────────────────────────────
+
+  function handleToggle() {
+    if (enabled) {
+      const { count, totalStock } = rowsWithStock(variantRows)
+      if (count > 0) {
+        setRemovalPending({ kind: 'toggle', count, totalStock })
+      } else {
+        doToggleOff()
+      }
+    } else {
+      doToggleOn()
+    }
+  }
+
+  function handleRemoveChip(optIdx: number, valIdx: number) {
+    const optName = options[optIdx].name
+    const val = options[optIdx].values[valIdx]
+    const affected = variantRows.filter(r => r.attributes[optName] === val && r.stock > 0)
+    if (affected.length > 0) {
+      const totalStock = affected.reduce((s, r) => s + r.stock, 0)
+      setRemovalPending({ kind: 'chip', optIdx, valIdx, count: affected.length, totalStock })
+    } else {
+      doRemoveOptionValue(optIdx, valIdx)
+    }
+  }
+
+  function handleRemoveOption(optIdx: number) {
+    const optName = options[optIdx].name
+    const affected = variantRows.filter(r => optName in r.attributes && r.stock > 0)
+    if (affected.length > 0) {
+      const totalStock = affected.reduce((s, r) => s + r.stock, 0)
+      setRemovalPending({ kind: 'option', optIdx, count: affected.length, totalStock })
+    } else {
+      doRemoveOption(optIdx)
+    }
+  }
+
+  function confirmRemoval() {
+    if (!removalPending) return
+    if (removalPending.kind === 'chip') {
+      doRemoveOptionValue(removalPending.optIdx, removalPending.valIdx)
+    } else if (removalPending.kind === 'option') {
+      doRemoveOption(removalPending.optIdx)
+    } else {
+      doToggleOff()
+    }
+    setRemovalPending(null)
+  }
+
+  // ── Resto de handlers ───────────────────────────────────────────────────────
+
   function handleOptionNameChange(idx: number, name: string) {
-    handleOptionsChange(options.map((o, i) => i === idx ? { ...o, name } : o))
+    applyOptionsChange(options.map((o, i) => i === idx ? { ...o, name } : o))
   }
 
   function addOptionValue(optIdx: number) {
@@ -163,26 +238,13 @@ export default function VariantsSection({
         : o
     )
     setNewValueInputs(prev => prev.map((v, i) => i === optIdx ? '' : v))
-    handleOptionsChange(newOptions)
-  }
-
-  function removeOptionValue(optIdx: number, valIdx: number) {
-    handleOptionsChange(
-      options.map((o, i) =>
-        i === optIdx ? { ...o, values: o.values.filter((_, vi) => vi !== valIdx) } : o
-      )
-    )
+    applyOptionsChange(newOptions)
   }
 
   function addOption() {
     if (options.length >= 2) return
-    handleOptionsChange([...options, { name: '', values: [] }])
+    applyOptionsChange([...options, { name: '', values: [] }])
     setNewValueInputs(prev => [...prev, ''])
-  }
-
-  function removeOption(idx: number) {
-    handleOptionsChange(options.filter((_, i) => i !== idx))
-    setNewValueInputs(prev => prev.filter((_, i) => i !== idx))
   }
 
   function updateRow(idx: number, field: keyof VariantRowData, value: string | number) {
@@ -208,9 +270,7 @@ export default function VariantsSection({
             onChange={handleToggle}
             className="sr-only"
           />
-          <div
-            className={`w-10 h-6 rounded-full transition-colors ${enabled ? 'bg-foreground' : 'bg-border'}`}
-          />
+          <div className={`w-10 h-6 rounded-full transition-colors ${enabled ? 'bg-foreground' : 'bg-border'}`} />
           <div
             className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
               enabled ? 'translate-x-4' : 'translate-x-0'
@@ -250,7 +310,7 @@ export default function VariantsSection({
                 {options.length > 1 && (
                   <button
                     type="button"
-                    onClick={() => removeOption(optIdx)}
+                    onClick={() => handleRemoveOption(optIdx)}
                     aria-label={`Eliminar opción ${optIdx + 1}`}
                     className="w-11 h-11 flex items-center justify-center text-muted hover:text-stock-none hover:bg-stock-none-bg rounded-input transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stock-none/40 flex-shrink-0"
                   >
@@ -266,7 +326,7 @@ export default function VariantsSection({
                     <button
                       key={valIdx}
                       type="button"
-                      onClick={() => removeOptionValue(optIdx, valIdx)}
+                      onClick={() => handleRemoveChip(optIdx, valIdx)}
                       aria-label={`Eliminar ${val}`}
                       className="inline-flex items-center gap-1.5 px-3 h-11 bg-card border border-border rounded-full text-sm text-foreground hover:bg-stock-none-bg hover:text-stock-none hover:border-stock-none/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40"
                     >
@@ -384,6 +444,44 @@ export default function VariantsSection({
           )}
         </div>
       )}
+
+      {/* Modal: confirmación al desactivar variantes con stock */}
+      <Modal
+        open={!!removalPending}
+        onClose={() => setRemovalPending(null)}
+        title="Desactivar variantes"
+        size="sm"
+      >
+        {removalPending && (
+          <div className="space-y-4">
+            <p className="text-sm text-foreground">
+              Se van a desactivar{' '}
+              <strong>{removalPending.count} variante{removalPending.count !== 1 ? 's' : ''}</strong>
+              {' '}con{' '}
+              <strong>{removalPending.totalStock} unidad{removalPending.totalStock !== 1 ? 'es' : ''}</strong>
+              {' '}en total. ¿Querés continuar?
+            </p>
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setRemovalPending(null)}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                onClick={confirmRemoval}
+                className="flex-1"
+              >
+                Confirmar
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </section>
   )
 }
