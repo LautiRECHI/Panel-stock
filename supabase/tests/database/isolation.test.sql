@@ -15,7 +15,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(100);   -- total de assertions
+SELECT plan(103);   -- total de assertions
 
 -- =====================
 -- Setup: dos tiendas, dos usuarios, datos de ejemplo
@@ -992,10 +992,17 @@ VALUES ('50000000-0000-0000-0001-000000000005', '20000000-0000-0000-0000-0000000
         '40000000-0000-0000-0001-000000000005', 'SKU-G-001', 0)
 ON CONFLICT (id) DO NOTHING;
 
--- Categoría raíz y subcategoría para test de filtro
+-- Categoría raíz y subcategoría para test de filtro (tests 99, 101)
 INSERT INTO public.categories (id, store_id, name, slug)
 VALUES ('30000000-0000-0000-0001-000000000020', '20000000-0000-0000-0000-000000000001',
         'Cat API Root', 'cat-api-root')
+ON CONFLICT (id) DO NOTHING;
+
+-- Segunda raíz sin subcategoría 'subcat-api': permite reproducir el bug
+-- de subcategoría con parent_id incorrecto (tests 102, 103)
+INSERT INTO public.categories (id, store_id, name, slug)
+VALUES ('30000000-0000-0000-0001-000000000022', '20000000-0000-0000-0000-000000000001',
+        'Cat API Other', 'cat-api-other')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.categories (id, store_id, parent_id, name, slug)
@@ -1118,6 +1125,35 @@ SELECT ok(
 SELECT ok(
   (SELECT count(*) = 0 FROM public.public_store('tienda-que-no-existe')),
   '100. public_store con slug inexistente retorna 0 filas sin error'
+);
+
+-- =====================
+-- PARTE 19 — Filtro por subcategoría verificando parent_id (tests 101-103)
+-- Tests 102 y 103 FALLAN con migration 009 y PASAN tras migration 010.
+-- =====================
+
+-- 101. Combinación válida (categoría + su subcategoría): devuelve el producto
+SELECT ok(
+  (SELECT count(*) = 1 FROM public.public_products('tienda-a', 'cat-api-root', 'subcat-api')
+   WHERE slug = 'producto-subcategoria'),
+  '101. category+subcategory válidos devuelven el producto correcto'
+);
+
+-- 102. Subcategoría que NO pertenece a la categoría indicada → vacío
+-- 'subcat-api' existe bajo 'cat-api-root', no bajo 'cat-api-other'.
+-- Bug (migration 009): encontraba la de cat-api-root y devolvía el producto.
+-- Fix (migration 010): verifica parent_id = v_cat_id → retorna vacío.
+SELECT ok(
+  (SELECT count(*) = 0 FROM public.public_products('tienda-a', 'cat-api-other', 'subcat-api')),
+  '102. subcategoría de otra raíz no devuelve resultados (fix parent_id check)'
+);
+
+-- 103. Slug de subcategoría que no existe bajo la categoría dada → vacío
+-- Bug (migration 009): caía al filtro de categoría sola y devolvía todos sus productos.
+-- Fix (migration 010): RETURN vacío al no encontrar la subcategoría bajo esa raíz.
+SELECT ok(
+  (SELECT count(*) = 0 FROM public.public_products('tienda-a', 'cat-api-root', 'slug-inexistente')),
+  '103. subcategoría inexistente bajo la categoría devuelve vacío (no fallback)'
 );
 
 SELECT * FROM finish();

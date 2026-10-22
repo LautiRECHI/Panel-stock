@@ -1,3 +1,12 @@
+// GET /api/v1/[store_slug]/products
+// Parámetros de query aceptados:
+//   category    — slug de la categoría raíz (opcional)
+//   subcategory — slug de la subcategoría; solo filtra cuando category está presente (opcional)
+//   search      — texto libre; busca en nombre y marca, máx. 100 chars (opcional)
+//   limit       — resultados por página, 1-60, defecto 24 (opcional)
+//   offset      — desplazamiento para paginación, defecto 0 (opcional)
+// La respuesta incluye `total` (total sin paginar) y `cover_url` por producto.
+
 import { NextResponse } from 'next/server'
 import { createAnonClient } from '@/lib/supabase/anon'
 import { corsHeaders, preflightResponse, validSlug } from '@/lib/api-cors'
@@ -21,7 +30,7 @@ export async function GET(
 
   const category    = q.get('category')    ?? null
   const subcategory = q.get('subcategory') ?? null
-  const search      = q.get('q')           ?? null
+  const search      = q.get('search')      ?? null
 
   if (
     !validSlug(store_slug) ||
