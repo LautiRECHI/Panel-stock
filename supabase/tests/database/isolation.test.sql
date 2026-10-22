@@ -15,7 +15,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(85);   -- total de assertions
+SELECT plan(100);   -- total de assertions
 
 -- =====================
 -- Setup: dos tiendas, dos usuarios, datos de ejemplo
@@ -952,6 +952,172 @@ SELECT throws_ok(
     )$$,
   '42501', NULL,
   '85. Anon no puede ejecutar upsert_variants (42501)'
+);
+
+-- =====================
+-- Setup para PARTE 18 — API pública
+-- =====================
+RESET role;
+
+-- Producto E: borrador — no debe aparecer en la API pública
+INSERT INTO public.products (id, store_id, name, slug, price, status)
+VALUES ('40000000-0000-0000-0001-000000000003', '20000000-0000-0000-0000-000000000001',
+        'Producto Draft', 'producto-draft', 50, 'draft')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.product_variants (id, store_id, product_id, sku, stock)
+VALUES ('50000000-0000-0000-0001-000000000003', '20000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0001-000000000003', 'SKU-DRAFT-001', 5)
+ON CONFLICT (id) DO NOTHING;
+
+-- Producto F: archivado — no debe aparecer
+INSERT INTO public.products (id, store_id, name, slug, price, status)
+VALUES ('40000000-0000-0000-0001-000000000004', '20000000-0000-0000-0000-000000000001',
+        'Producto Archived', 'producto-archived', 50, 'archived')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.product_variants (id, store_id, product_id, sku, stock)
+VALUES ('50000000-0000-0000-0001-000000000004', '20000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0001-000000000004', 'SKU-ARCHIVED-001', 5)
+ON CONFLICT (id) DO NOTHING;
+
+-- Producto G: activo, stock = 0 en todas las variantes
+INSERT INTO public.products (id, store_id, name, slug, price, status)
+VALUES ('40000000-0000-0000-0001-000000000005', '20000000-0000-0000-0000-000000000001',
+        'Producto Sin Stock', 'producto-sin-stock', 99, 'active')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.product_variants (id, store_id, product_id, sku, stock)
+VALUES ('50000000-0000-0000-0001-000000000005', '20000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0001-000000000005', 'SKU-G-001', 0)
+ON CONFLICT (id) DO NOTHING;
+
+-- Categoría raíz y subcategoría para test de filtro
+INSERT INTO public.categories (id, store_id, name, slug)
+VALUES ('30000000-0000-0000-0001-000000000020', '20000000-0000-0000-0000-000000000001',
+        'Cat API Root', 'cat-api-root')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.categories (id, store_id, parent_id, name, slug)
+VALUES ('30000000-0000-0000-0001-000000000021', '20000000-0000-0000-0000-000000000001',
+        '30000000-0000-0000-0001-000000000020', 'SubCat API', 'subcat-api')
+ON CONFLICT (id) DO NOTHING;
+
+-- Producto H: activo, asignado a la subcategoría
+INSERT INTO public.products (id, store_id, category_id, name, slug, price, status)
+VALUES ('40000000-0000-0000-0001-000000000006', '20000000-0000-0000-0000-000000000001',
+        '30000000-0000-0000-0001-000000000021',
+        'Producto Subcategoria', 'producto-subcategoria', 75, 'active')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.product_variants (id, store_id, product_id, sku, stock)
+VALUES ('50000000-0000-0000-0001-000000000006', '20000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0001-000000000006', 'SKU-H-001', 5)
+ON CONFLICT (id) DO NOTHING;
+
+-- =====================
+-- PARTE 18 — API pública de lectura (tests 86-100)
+-- =====================
+SET LOCAL role TO anon;
+
+-- 86. Anon puede ejecutar public_store y obtiene datos de tienda existente
+SELECT ok(
+  (SELECT count(*) = 1 FROM public.public_store('tienda-a')),
+  '86. Anon puede ejecutar public_store y obtiene tienda existente'
+);
+
+-- 87. Anon puede ejecutar public_categories
+SELECT lives_ok(
+  $$SELECT * FROM public.public_categories('tienda-a')$$,
+  '87. Anon puede ejecutar public_categories'
+);
+
+-- 88. Anon puede ejecutar public_products
+SELECT lives_ok(
+  $$SELECT * FROM public.public_products('tienda-a')$$,
+  '88. Anon puede ejecutar public_products'
+);
+
+-- 89. Anon puede ejecutar public_product
+SELECT lives_ok(
+  $$SELECT * FROM public.public_product('tienda-a', 'producto-a')$$,
+  '89. Anon puede ejecutar public_product'
+);
+
+-- 90. Producto en borrador no aparece en la API pública
+SELECT ok(
+  (SELECT count(*) = 0 FROM public.public_products('tienda-a')
+   WHERE slug = 'producto-draft'),
+  '90. Producto draft no aparece en public_products'
+);
+
+-- 91. Producto archivado no aparece en la API pública
+SELECT ok(
+  (SELECT count(*) = 0 FROM public.public_products('tienda-a')
+   WHERE slug = 'producto-archived'),
+  '91. Producto archived no aparece en public_products'
+);
+
+-- 92. public_products de tienda-a no incluye productos de tienda-c
+SELECT ok(
+  (SELECT count(*) = 0 FROM public.public_products('tienda-a')
+   WHERE slug = 'producto-c'),
+  '92. public_products de tienda-a no incluye productos de tienda-c'
+);
+
+-- 93. public_store no expone store_id ni cuit
+SELECT ok(
+  NOT (row_to_json(r)::jsonb ? 'store_id') AND NOT (row_to_json(r)::jsonb ? 'cuit'),
+  '93. public_store no expone store_id ni cuit'
+) FROM public.public_store('tienda-a') r;
+
+-- 94. in_stock = true para producto con stock > 0 (producto-a tiene stock = 100)
+SELECT ok(
+  (SELECT in_stock = true FROM public.public_products('tienda-a')
+   WHERE slug = 'producto-a'),
+  '94. in_stock = true para producto con stock > 0'
+);
+
+-- 95. in_stock = false para producto con todas las variantes en stock = 0
+SELECT ok(
+  (SELECT in_stock = false FROM public.public_products('tienda-a')
+   WHERE slug = 'producto-sin-stock'),
+  '95. in_stock = false para producto con todas las variantes en stock 0'
+);
+
+-- 96. Paginación: limit=1 retorna 1 fila y total_count refleja el total real
+SELECT ok(
+  (SELECT count(*) = 1 AND bool_and(total_count > 1)
+   FROM public.public_products('tienda-a', NULL, NULL, NULL, 1, 0)),
+  '96. paginación: limit=1 retorna 1 fila y total_count es mayor que 1'
+);
+
+-- 97. public_product devuelve in_stock correcto en variantes activas
+SELECT ok(
+  (SELECT (variants -> 0 ->> 'in_stock')::boolean = true
+   FROM public.public_product('tienda-a', 'producto-a')),
+  '97. public_product devuelve variante activa con in_stock = true'
+);
+
+-- 98. public_product no devuelve variantes inactivas
+-- producto-d tiene 1 variante activa (SKU-D-TALLE-L) y 2 inactivas
+SELECT ok(
+  (SELECT jsonb_array_length(variants) = 1
+   FROM public.public_product('tienda-a', 'producto-d')),
+  '98. public_product no devuelve variantes inactivas (producto-d: 1 activa)'
+);
+
+-- 99. Filtro por categoría raíz incluye productos de sus subcategorías
+SELECT ok(
+  (SELECT count(*) = 1 FROM public.public_products('tienda-a', 'cat-api-root')
+   WHERE slug = 'producto-subcategoria'),
+  '99. filtro por categoría raíz incluye productos de subcategorías'
+);
+
+-- 100. public_store con slug inexistente retorna vacío sin error
+SELECT ok(
+  (SELECT count(*) = 0 FROM public.public_store('tienda-que-no-existe')),
+  '100. public_store con slug inexistente retorna 0 filas sin error'
 );
 
 SELECT * FROM finish();
