@@ -4,7 +4,7 @@ import { useState, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Package, Plus, Search, Pencil, Archive, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Package, Plus, Search, Pencil, Archive, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import type { ProductWithVariant, ProductFilter } from '@/lib/products-utils'
 import type { Category } from '@/lib/categories'
 import { LOW_STOCK_THRESHOLD, formatPrice } from '@/lib/products-utils'
@@ -15,6 +15,7 @@ import StatusChip from '@/components/ui/StatusChip'
 import EmptyState from '@/components/ui/EmptyState'
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
+import ImportarModal from './ImportarModal'
 
 const PAGE_SIZE = 25
 
@@ -114,6 +115,7 @@ export default function ProductsClient({
   const { toast } = useToast()
   const searchRef = useRef<HTMLInputElement>(null)
   const [isPending, startTransition] = useTransition()
+  const [importOpen, setImportOpen] = useState(false)
 
   // Optimistic stock map: variantId → stock (only for simple products)
   const [stockMap, setStockMap] = useState<Record<string, number>>(() => {
@@ -199,13 +201,24 @@ export default function ProductsClient({
             {total > 0 ? `${total} producto${total !== 1 ? 's' : ''}` : 'Gestioná tu catálogo'}
           </p>
         </div>
-        <Link href="/panel/productos/nuevo">
-          <Button className="flex-shrink-0">
-            <Plus className="w-4 h-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Nuevo producto</span>
-            <span className="sm:hidden">Nuevo</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setImportOpen(true)}
+            className="flex-shrink-0"
+          >
+            <Upload className="w-4 h-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Importar</span>
           </Button>
-        </Link>
+          <Link href="/panel/productos/nuevo">
+            <Button className="flex-shrink-0">
+              <Plus className="w-4 h-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Nuevo producto</span>
+              <span className="sm:hidden">Nuevo</span>
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -492,6 +505,12 @@ export default function ProductsClient({
           )}
         </>
       )}
+
+      {/* Modal: importar */}
+      <ImportarModal
+        open={importOpen}
+        onClose={() => { setImportOpen(false); router.refresh() }}
+      />
 
       {/* Modal: archivar */}
       <Modal
