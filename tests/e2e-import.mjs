@@ -14,15 +14,37 @@
 import ExcelJS from 'exceljs'
 import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
+import { readFileSync, existsSync } from 'fs'
+import { resolve, dirname } from 'path'
+import { fileURLToPath } from 'url'
 
 // ─── Configuración local ───────────────────────────────────────────────────────
+// Las claves pueden provenir de:
+//   1. Variables de entorno SUPABASE_LOCAL_URL / SUPABASE_LOCAL_ANON_KEY /
+//      SUPABASE_LOCAL_SERVICE_KEY
+//   2. Un archivo tests/.env.test.local (ignorado por git) con esas mismas vars
+//   3. Los defaults públicos del Supabase local (idénticos en toda instalación)
 
-const SUPABASE_URL = 'http://127.0.0.1:54321'
+const __dir = dirname(fileURLToPath(import.meta.url))
+const envFile = resolve(__dir, '.env.test.local')
+if (existsSync(envFile)) {
+  for (const line of readFileSync(envFile, 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z_]+)=(.+)$/)
+    if (m) process.env[m[1]] = m[2].trim()
+  }
+}
+
+// Defaults = claves demo públicas de Supabase local (iguales en toda instalación)
+const SUPABASE_URL =
+  process.env.SUPABASE_LOCAL_URL ?? 'http://127.0.0.1:54321'
 const ANON_KEY =
+  process.env.SUPABASE_LOCAL_ANON_KEY ??
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0'
 const SERVICE_ROLE_KEY =
+  process.env.SUPABASE_LOCAL_SERVICE_KEY ??
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
 const EXCEL_PATH =
+  process.env.IMPORT_EXCEL_PATH ??
   'C:/Users/Rechi/Desktop/Productos_Punto_de_Oro_para_importar.xlsx'
 
 const BATCH_SIZE = 50
