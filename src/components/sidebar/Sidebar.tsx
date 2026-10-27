@@ -10,6 +10,7 @@ import {
   ArrowLeftRight,
   MessageSquare,
   Settings,
+  User,
   LogOut,
   Menu,
   X,
@@ -35,6 +36,7 @@ const navItems: NavItem[] = [
   { href: '/panel/categorias', icon: Tag, label: 'Categorías' },
   { icon: ArrowLeftRight, label: 'Movimientos de stock', disabled: true },
   { icon: MessageSquare, label: 'Consultas', disabled: true },
+  { href: '/panel/cuenta', icon: User, label: 'Mi cuenta' },
   { icon: Settings, label: 'Configuración', disabled: true },
 ]
 
