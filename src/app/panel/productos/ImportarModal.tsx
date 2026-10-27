@@ -19,6 +19,7 @@ interface FinalReport {
   salteados: number
   errores: number
   errorDetails: { nombre: string; slug: string; error: string }[]
+  systemError?: string
 }
 
 interface Props {
@@ -186,15 +187,13 @@ export default function ImportarModal({ open, onClose }: Props) {
       const result = await importBatch(batch)
 
       if ('error' in result) {
-        // Error de sistema: abortar con mensaje
+        // Error de sistema (p.ej. RPC caído): abortar y mostrar el mensaje una sola vez
         setReport({
           creados: totalCreados,
           salteados: totalSalteados,
-          errores: allErrorDetails.length + batch.length,
-          errorDetails: [
-            ...allErrorDetails,
-            ...batch.map(p => ({ nombre: p.nombre, slug: p.slug, error: result.error })),
-          ],
+          errores: allErrorDetails.length,
+          errorDetails: allErrorDetails,
+          systemError: result.error,
         })
         setStep('done')
         return
@@ -444,6 +443,13 @@ export default function ImportarModal({ open, onClose }: Props) {
               <p className={`text-xs mt-0.5 ${report.errores > 0 ? 'text-stock-none/80' : 'text-muted'}`}>error{report.errores !== 1 ? 'es' : ''}</p>
             </div>
           </div>
+
+          {report.systemError && (
+            <div className="flex items-start gap-2 text-sm text-stock-none bg-stock-none-bg border border-stock-none/20 rounded-input px-3 py-2.5">
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <span>La importación se interrumpió: {report.systemError}</span>
+            </div>
+          )}
 
           {report.creados > 0 && (
             <div className="flex items-center gap-2 text-sm text-stock-ok bg-stock-ok-bg border border-stock-ok/20 rounded-input px-3 py-2.5">

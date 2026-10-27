@@ -13,7 +13,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(18);  -- total de assertions en este archivo
+SELECT plan(19);  -- total de assertions en este archivo
 
 -- ── Setup ─────────────────────────────────────────────────────────────────────
 DO $$
@@ -232,6 +232,14 @@ SELECT ok(
    WHERE slug = 'prod-j'
      AND store_id = '20000000-0000-0000-0000-000000000011'),
   '18. El producto de J sí existe en la tienda J'
+);
+
+-- 19. Llamada con parámetro nombrado (p_products => ...) — si se renombra el parámetro esto falla
+SELECT lives_ok(
+  $$SELECT public.import_products(p_products =>
+    '[{"nombre":"Named Param Prod","slug":"named-param-prod","categoria_name":"CatNP","categoria_slug":"cat-np","subcategoria_name":"","subcategoria_slug":"","marca":"","descripcion":"","precio":100,"estado":"active","variantes":[{"sku":"NP-J-001","opcion":"","valor":"","stock":0}]}]'::jsonb
+  )$$,
+  '19. Llamada con sintaxis p_products => ... funciona (parámetro nombrado)'
 );
 
 SELECT * FROM finish();
