@@ -19,33 +19,68 @@ import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 // ─── Configuración local ───────────────────────────────────────────────────────
-// Las claves pueden provenir de:
-//   1. Variables de entorno SUPABASE_LOCAL_URL / SUPABASE_LOCAL_ANON_KEY /
-//      SUPABASE_LOCAL_SERVICE_KEY
-//   2. Un archivo tests/.env.test.local (ignorado por git) con esas mismas vars
-//   3. Los defaults públicos del Supabase local (idénticos en toda instalación)
+// Las claves se leen de:
+//   1. Variables de entorno ya exportadas en el shell
+//   2. tests/.env.test.local (ignorado por git) — mismo formato KEY=valor
+//
+// Para obtener los valores: npx supabase status
+// Variables requeridas:
+//   SUPABASE_LOCAL_URL         (API_URL en supabase status)
+//   SUPABASE_LOCAL_ANON_KEY    (ANON_KEY)
+//   SUPABASE_LOCAL_SERVICE_KEY (SERVICE_ROLE_KEY)
+//   IMPORT_EXCEL_PATH          (ruta al .xlsx a importar)
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const envFile = resolve(__dir, '.env.test.local')
 if (existsSync(envFile)) {
   for (const line of readFileSync(envFile, 'utf8').split('\n')) {
-    const m = line.match(/^([A-Z_]+)=(.+)$/)
+    const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.+)$/)
     if (m) process.env[m[1]] = m[2].trim()
   }
 }
 
-// Defaults = claves demo públicas de Supabase local (iguales en toda instalación)
-const SUPABASE_URL =
-  process.env.SUPABASE_LOCAL_URL ?? 'http://127.0.0.1:54321'
-const ANON_KEY =
-  process.env.SUPABASE_LOCAL_ANON_KEY ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0'
-const SERVICE_ROLE_KEY =
-  process.env.SUPABASE_LOCAL_SERVICE_KEY ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
-const EXCEL_PATH =
-  process.env.IMPORT_EXCEL_PATH ??
-  'C:/Users/Rechi/Desktop/Productos_Punto_de_Oro_para_importar.xlsx'
+const SUPABASE_URL = process.env.SUPABASE_LOCAL_URL
+const ANON_KEY = process.env.SUPABASE_LOCAL_ANON_KEY
+const SERVICE_ROLE_KEY = process.env.SUPABASE_LOCAL_SERVICE_KEY
+const EXCEL_PATH = process.env.IMPORT_EXCEL_PATH
+
+// ─── Validación de entorno (abortar temprano con mensajes claros) ──────────────
+
+const MISSING = []
+if (!ANON_KEY) MISSING.push('SUPABASE_LOCAL_ANON_KEY')
+if (!SERVICE_ROLE_KEY) MISSING.push('SUPABASE_LOCAL_SERVICE_KEY')
+if (!EXCEL_PATH) MISSING.push('IMPORT_EXCEL_PATH')
+
+if (MISSING.length > 0) {
+  console.error(`
+Error: faltan variables de entorno requeridas: ${MISSING.join(', ')}
+
+Obtené las claves con:
+  npx supabase status
+
+Luego exportalas o creá el archivo tests/.env.test.local con:
+  SUPABASE_LOCAL_URL=http://127.0.0.1:54321
+  SUPABASE_LOCAL_ANON_KEY=<ANON_KEY de supabase status>
+  SUPABASE_LOCAL_SERVICE_KEY=<SERVICE_ROLE_KEY de supabase status>
+  IMPORT_EXCEL_PATH=<ruta al .xlsx>
+`)
+  process.exit(1)
+}
+
+if (
+  !SUPABASE_URL ||
+  (!SUPABASE_URL.startsWith('http://127.0.0.1') &&
+    !SUPABASE_URL.startsWith('http://localhost'))
+) {
+  console.error(`
+Error: SUPABASE_LOCAL_URL debe apuntar a localhost.
+  Valor actual: ${SUPABASE_URL ?? '(no definida)'}
+  Esperado:     http://127.0.0.1:54321
+
+Este script solo puede correr contra la base local para evitar modificar datos de producción.
+`)
+  process.exit(1)
+}
 
 const BATCH_SIZE = 50
 

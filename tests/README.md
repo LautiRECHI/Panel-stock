@@ -1,4 +1,57 @@
-# Tests de aislamiento entre tiendas
+# Tests
+
+## Test e2e del importador (`e2e-import.mjs`)
+
+Importa el archivo Excel real de Punto de Oro contra la base local, verifica
+los totales y borra todo al final. No toca producción.
+
+### Requisitos previos
+
+```bash
+npx supabase start
+npx supabase db reset
+```
+
+### Variables de entorno
+
+Creá el archivo `tests/.env.test.local` (ignorado por git):
+
+```
+SUPABASE_LOCAL_URL=http://127.0.0.1:54321
+SUPABASE_LOCAL_ANON_KEY=<ANON_KEY>
+SUPABASE_LOCAL_SERVICE_KEY=<SERVICE_ROLE_KEY>
+IMPORT_EXCEL_PATH=<ruta al .xlsx>
+```
+
+Para obtener las claves:
+
+```bash
+npx supabase status
+```
+
+Copiá los campos `ANON_KEY` y `SERVICE_ROLE_KEY` de la salida.
+
+### Ejecución
+
+```bash
+node tests/e2e-import.mjs
+```
+
+### Resultado esperado (archivo Punto de Oro)
+
+| Verificación | Valor |
+|---|---|
+| Productos creados | 556 |
+| Variantes activas | 1 109 |
+| Borradores | 111 |
+| Stock total | 636 |
+| Subcategorías | 43 |
+| 2ª importación creados | 0 |
+| 2ª importación salteados | 556 |
+
+---
+
+## Tests de aislamiento entre tiendas
 
 Estos tests verifican que el RLS y los triggers de integridad funcionan correctamente:
 un usuario de la tienda A no puede leer, insertar, actualizar ni borrar datos de la tienda B
