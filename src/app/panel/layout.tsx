@@ -34,13 +34,23 @@ export default async function PanelLayout({ children }: PanelLayoutProps) {
     redirect('/onboarding')
   }
 
+  const { count: pendingOrdersCount } = await supabase
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('store_id', store.id)
+    .eq('status', 'pendiente')
+
   return (
     <ToastProvider>
       <div
         className="flex min-h-screen"
         style={{ '--color-accent': store.accent_color } as React.CSSProperties}
       >
-        <Sidebar storeName={store.name} userEmail={user.email ?? ''} />
+        <Sidebar
+          storeName={store.name}
+          userEmail={user.email ?? ''}
+          pendingOrdersCount={pendingOrdersCount ?? 0}
+        />
 
         <div className="flex-1 flex flex-col min-w-0">
           {/* Espaciado para el botón hamburguesa en mobile */}

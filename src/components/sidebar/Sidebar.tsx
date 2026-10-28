@@ -8,6 +8,7 @@ import {
   Package,
   Tag,
   ArrowLeftRight,
+  ShoppingCart,
   MessageSquare,
   Settings,
   User,
@@ -20,6 +21,7 @@ import { logout } from '@/app/auth/actions'
 interface SidebarProps {
   storeName: string
   userEmail: string
+  pendingOrdersCount?: number
 }
 
 type NavItem = {
@@ -28,17 +30,26 @@ type NavItem = {
   href?: string
   disabled?: boolean
   exact?: boolean
+  badge?: number
 }
 
-const navItems: NavItem[] = [
-  { href: '/panel', icon: LayoutDashboard, label: 'Resumen', exact: true },
-  { href: '/panel/productos', icon: Package, label: 'Productos' },
-  { href: '/panel/categorias', icon: Tag, label: 'Categorías' },
-  { icon: ArrowLeftRight, label: 'Movimientos de stock', disabled: true },
-  { icon: MessageSquare, label: 'Consultas', disabled: true },
-  { href: '/panel/cuenta', icon: User, label: 'Mi cuenta' },
-  { icon: Settings, label: 'Configuración', disabled: true },
-]
+function buildNavItems(pendingOrdersCount: number): NavItem[] {
+  return [
+    { href: '/panel', icon: LayoutDashboard, label: 'Resumen', exact: true },
+    { href: '/panel/productos', icon: Package, label: 'Productos' },
+    { href: '/panel/categorias', icon: Tag, label: 'Categorías' },
+    {
+      href: '/panel/pedidos',
+      icon: ShoppingCart,
+      label: 'Pedidos',
+      badge: pendingOrdersCount > 0 ? pendingOrdersCount : undefined,
+    },
+    { icon: ArrowLeftRight, label: 'Movimientos de stock', disabled: true },
+    { icon: MessageSquare, label: 'Consultas', disabled: true },
+    { href: '/panel/cuenta', icon: User, label: 'Mi cuenta' },
+    { icon: Settings, label: 'Configuración', disabled: true },
+  ]
+}
 
 function getInitials(name: string): string {
   const words = name.trim().split(/\s+/)
@@ -49,12 +60,15 @@ function getInitials(name: string): string {
 function NavContent({
   storeName,
   pathname,
+  pendingOrdersCount,
   onClose,
 }: {
   storeName: string
   pathname: string
+  pendingOrdersCount: number
   onClose?: () => void
 }) {
+  const navItems = buildNavItems(pendingOrdersCount)
   return (
     <div className="flex flex-col h-full">
       {/* Cabecera con iniciales / logo */}
@@ -112,7 +126,12 @@ function NavContent({
               aria-current={isActive ? 'page' : undefined}
             >
               <item.icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-              <span className="truncate">{item.label}</span>
+              <span className="truncate flex-1">{item.label}</span>
+              {item.badge !== undefined && (
+                <span className="flex-shrink-0 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-stock-none text-white min-w-[18px] text-center">
+                  {item.badge}
+                </span>
+              )}
             </Link>
           )
         })}
@@ -134,7 +153,7 @@ function NavContent({
   )
 }
 
-export default function Sidebar({ storeName }: SidebarProps) {
+export default function Sidebar({ storeName, pendingOrdersCount = 0 }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const pathname = usePathname()
 
@@ -152,7 +171,7 @@ export default function Sidebar({ storeName }: SidebarProps) {
 
       {/* Sidebar desktop */}
       <aside className="hidden lg:flex flex-col w-56 bg-sidebar flex-shrink-0 h-screen sticky top-0">
-        <NavContent storeName={storeName} pathname={pathname} />
+        <NavContent storeName={storeName} pathname={pathname} pendingOrdersCount={pendingOrdersCount} />
       </aside>
 
       {/* Drawer mobile */}
@@ -167,6 +186,7 @@ export default function Sidebar({ storeName }: SidebarProps) {
             <NavContent
               storeName={storeName}
               pathname={pathname}
+              pendingOrdersCount={pendingOrdersCount}
               onClose={() => setMobileOpen(false)}
             />
           </aside>

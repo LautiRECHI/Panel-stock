@@ -1,5 +1,28 @@
 # PENDIENTES
 
+## Etapas siguientes de Pedidos
+
+### Etapa 2 — Carrito y checkout público
+Endpoint público `POST /api/v1/[store_slug]/orders` para que el frontend de la tienda cree pedidos (carrito + checkout). Requiere: anti-spam (rate limit por IP y por tienda), validación de origen CORS, y que el campo `source` quede en `'tienda'`. El endpoint debe ser completamente stateless (sin sesión de usuario).
+
+### Etapa 3 — Cotización de envío con Correo Argentino
+Agregar `weight_g` y `dimensions_cm` (largo, ancho, alto) a `product_variants`. Almacenar credenciales de Correo Argentino cifradas por tienda (campo en `stores`, nunca en `.env`). Integrar la API de Correo para cotizar envíos al vuelo en el checkout público y en la creación manual.
+
+### Etapa 4 — Pago con Mercado Pago
+Webhook con verificación de firma `x-signature`. Campos ya reservados: `payment_method='mercadopago'`, `payment_reference`. Crear tabla `mp_credentials` por tienda con `access_token` cifrado. Al recibir el webhook, llamar `mark_order_paid` con los datos del pago. Manejo de devoluciones: evento `cancelado` parcial (fuera del alcance de Etapa 1).
+
+### Etapa 5 — Pago con dLocal Go
+Similar a Mercado Pago pero con la API de dLocal. Usar `payment_method='dlocalgo'`.
+
+### Otras funcionalidades pendientes de Pedidos
+- **Emails de confirmación**: al crear el pedido y al cambiar de estado (Resend / SendGrid).
+- **Factura ARCA**: generación de comprobante fiscal (requiere CUIT y condición impositiva en `stores`).
+- **Devoluciones parciales**: cancelación de ítems individuales sin cancelar todo el pedido.
+- **Exportar pedidos a CSV**: descarga del historial para el dueño de la tienda.
+
+---
+
+
 ## Para decidir más adelante
 
 - `resolveStoreId()` en las acciones de categorías asume que el usuario tiene una sola tienda (hace `SELECT id FROM stores LIMIT 1` filtrado por RLS). Es correcto hoy porque el onboarding crea una sola tienda por usuario. El día que una persona administre varias tiendas (por ejemplo como admin de varios clientes), ese `LIMIT 1` va a tomar una tienda arbitraria. Antes de soportar multi-tienda por usuario hay que agregar selector de tienda activa (en sesión o en la URL) y que `resolveStoreId()` lo use en lugar de `LIMIT 1`.
