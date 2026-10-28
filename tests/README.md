@@ -1,5 +1,26 @@
 # Tests
 
+## Entorno local de desarrollo
+
+Después de `npx supabase db reset`, la base local queda con un usuario y una tienda
+de prueba listos para usar. **Estas credenciales son solo para desarrollo local.**
+
+| Campo    | Valor                   |
+|----------|-------------------------|
+| Email    | `test@local.test`       |
+| Password | `Test1234!local`        |
+| Tienda   | Punto de Oro (prueba)   |
+| Slug     | `punto-de-oro-prueba`   |
+| Panel    | http://localhost:3000   |
+
+La tienda incluye 5 productos con variantes y stock para probar Pedidos sin
+necesitar importar el Excel.
+
+> **Nunca usar estas credenciales en staging ni producción.**
+> El seed (`supabase/seed.sql`) solo se ejecuta en `db reset` local; `db push` no lo toca.
+
+---
+
 ## Test e2e del importador (`e2e-import.mjs`)
 
 Importa el archivo Excel real de Punto de Oro contra la base local, verifica

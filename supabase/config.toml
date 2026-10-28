@@ -12,6 +12,12 @@ port = 54322
 shadow_port = 54320
 major_version = 15
 
+[db.seed]
+# El seed solo se aplica en `supabase db reset` (base LOCAL).
+# `supabase db push` NO ejecuta el seed; es seguro tenerlo habilitado.
+enabled = true
+sql_paths = ["./seed.sql"]
+
 [studio]
 enabled = true
 port = 54323
