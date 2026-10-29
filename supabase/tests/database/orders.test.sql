@@ -9,7 +9,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(55);
+SELECT plan(58);
 
 -- ── Setup ─────────────────────────────────────────────────────────────────────
 DO $setup$
@@ -573,6 +573,39 @@ SELECT ok(
    WHERE o.store_id = '20000000-0000-0000-0000-000000000003'
      AND o.number   = 1001),
   '55. Pedido #1001 tiene al menos 3 eventos (creado, pagado, estado_cambiado x2)'
+);
+
+-- ── 56-58: create_order con p_shipping_cost ──────────────────────────────────
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
+
+SELECT lives_ok(
+  $$SELECT public.create_order(
+      '{"name":"Envio Pagado"}'::jsonb,
+      '{"method":"domicilio","street":"Av. Rivadavia","postal_code":"1002"}'::jsonb,
+      '[{"variant_id":"50000000-0000-0000-0003-000000000002","quantity":1}]'::jsonb,
+      NULL, 'panel', 5000
+    )$$,
+  '56. create_order con domicilio y shipping_cost=5000 funciona'
+);
+
+SELECT ok(
+  (SELECT shipping_cost = 5000 AND total = subtotal + 5000
+   FROM public.orders
+   WHERE store_id = '20000000-0000-0000-0000-000000000003' AND number = 1005),
+  '57. shipping_cost=5000 y total=subtotal+5000 guardados en el pedido'
+);
+
+SELECT throws_ok(
+  $$SELECT public.create_order(
+      '{"name":"Test Negativo"}'::jsonb,
+      '{"method":"domicilio","street":"Calle Falsa","postal_code":"0000"}'::jsonb,
+      '[{"variant_id":"50000000-0000-0000-0003-000000000002","quantity":1}]'::jsonb,
+      NULL, 'panel', -1
+    )$$,
+  'P0001', NULL,
+  '58. shipping_cost negativo falla en create_order'
 );
 
 SELECT * FROM finish();

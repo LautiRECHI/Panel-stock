@@ -41,9 +41,10 @@ const newOrderSchema = z.object({
     d => d.method !== 'domicilio' || (d.postal_code && d.postal_code.trim().length > 0),
     { message: 'El código postal es requerido para envío a domicilio', path: ['postal_code'] }
   ),
-  items:  z.array(newOrderItemSchema).min(1, 'El pedido debe tener al menos un ítem'),
-  notes:  z.string().max(2000).optional().or(z.literal('')),
-  source: z.enum(['panel', 'tienda', 'whatsapp']).default('panel'),
+  items:         z.array(newOrderItemSchema).min(1, 'El pedido debe tener al menos un ítem'),
+  notes:         z.string().max(2000).optional().or(z.literal('')),
+  source:        z.enum(['panel', 'tienda', 'whatsapp']).default('panel'),
+  shipping_cost: z.number().int().min(0, 'El costo de envío no puede ser negativo').nullable().default(null),
 })
 
 export async function createOrder(
@@ -53,14 +54,15 @@ export async function createOrder(
   if (!parsed.success) return { success: false, error: parsed.error.issues[0].message }
 
   const supabase = await createClient()
-  const { customer, delivery, items, notes, source } = parsed.data
+  const { customer, delivery, items, notes, source, shipping_cost } = parsed.data
 
   const { data, error } = await supabase.rpc('create_order', {
-    p_customer: customer,
-    p_delivery: delivery,
-    p_items:    items,
-    p_notes:    notes ?? null,
-    p_source:   source,
+    p_customer:      customer,
+    p_delivery:      delivery,
+    p_items:         items,
+    p_notes:         notes ?? null,
+    p_source:        source,
+    p_shipping_cost: delivery.method === 'domicilio' ? (shipping_cost ?? null) : null,
   })
 
   if (error) {

@@ -134,9 +134,10 @@ export default function NuevoPedidoClient({ variants }: Props) {
           postal_code: postalCode.trim()  || undefined,
           notes:       deliveryNotes.trim() || undefined,
         },
-        items:  lines.map(l => ({ variant_id: l.variant.id, quantity: l.quantity })),
-        notes:  notes.trim() || undefined,
+        items:         lines.map(l => ({ variant_id: l.variant.id, quantity: l.quantity })),
+        notes:         notes.trim() || undefined,
         source,
+        shipping_cost: delivery === 'domicilio' ? (shipNum ?? null) : null,
       })
 
       if (res.success) {
