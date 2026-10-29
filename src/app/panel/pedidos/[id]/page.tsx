@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { getOrder } from '@/lib/orders'
 import PedidoDetail from './PedidoDetail'
 
+export const instant = false
+
 type Props = { params: Promise<{ id: string }> }
 
 export default async function PedidoPage({ params }: Props) {

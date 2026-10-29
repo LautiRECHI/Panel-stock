@@ -6,6 +6,8 @@ import { getOrders } from '@/lib/orders'
 import type { Order } from '@/lib/orders-utils'
 import PedidosClient from './PedidosClient'
 
+export const instant = false
+
 type SearchParams = Promise<{ status?: string; q?: string; page?: string }>
 
 export default async function PedidosPage({ searchParams }: { searchParams: SearchParams }) {

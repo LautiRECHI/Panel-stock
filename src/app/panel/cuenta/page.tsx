@@ -2,6 +2,8 @@ import { connection } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import CuentaClient from './CuentaClient'
 
+export const instant = false
+
 export default async function CuentaPage() {
   await connection()
 

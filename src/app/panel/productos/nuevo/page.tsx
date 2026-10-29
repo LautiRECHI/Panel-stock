@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { getCategories, buildCategoryTree } from '@/lib/categories'
 import ProductForm from '../ProductForm'
 
+export const instant = false
+
 export default async function NuevoProductoPage() {
   await connection()
 

@@ -5,6 +5,8 @@ import { getCategories, buildCategoryTree } from '@/lib/categories'
 import { getProduct } from '@/lib/products'
 import ProductForm from '../ProductForm'
 
+export const instant = false
+
 type Props = { params: Promise<{ id: string }> }
 
 export default async function EditarProductoPage({ params }: Props) {

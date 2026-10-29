@@ -6,6 +6,8 @@ import { getCategories } from '@/lib/categories'
 import ProductsClient from './ProductsClient'
 import type { ProductFilter } from '@/lib/products'
 
+export const instant = false
+
 type SearchParams = Promise<{ status?: string; q?: string; cat?: string; page?: string }>
 
 export default async function ProductosPage({ searchParams }: { searchParams: SearchParams }) {

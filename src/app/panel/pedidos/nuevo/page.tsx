@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { getVariantsForNewOrder } from '@/lib/orders'
 import NuevoPedidoClient from './NuevoPedidoClient'
 
+export const instant = false
+
 export default async function NuevoPedidoPage() {
   await connection()
 
