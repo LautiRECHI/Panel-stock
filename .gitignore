@@ -46,3 +46,5 @@ next-env.d.ts
 
 .claude/settings.local.json
 supabase/.temp/
+test-results/
+playwright-report/
