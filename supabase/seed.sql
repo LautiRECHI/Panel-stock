@@ -16,46 +16,52 @@
 -- IDEMPOTENTE: todos los INSERT usan ON CONFLICT ... DO NOTHING.
 -- Los tests pgTAP no se ven afectados porque usan UUIDs con prefijos
 -- distintos (10...0001-0004, 20...0001-0004, 30..., 40..., 50...);
--- el seed usa el prefijo eeeeeeee-... para ser inequívoco.
+-- el seed usa el prefijo e0eedc00-XXXX-4000-8000-... para ser inequívoco.
+--
+-- UUIDs del seed son UUID v4 válidos (tercer grupo 4xxx, cuarto grupo 8xxx),
+-- necesario porque las server actions validan con z.uuid() de Zod 4,
+-- que exige version [1-8] y variante [89ab].
+-- Patrón: e0eedc00-{GRUPO}-4000-8000-{SEQ12}
+--   GRUPO: 0000=auth, 0001=categorías, 0002=productos, 0003=variantes
 -- =============================================================================
 
 DO $seed$
 DECLARE
-  -- ── UUIDs fijos del entorno local ──────────────────────────────────────────
-  v_uid  CONSTANT uuid := 'eeeeeeee-0000-0000-0000-000000000001';  -- auth user
-  v_iid  CONSTANT uuid := 'eeeeeeee-0000-0000-0000-000000000002';  -- auth identity
-  v_sid  CONSTANT uuid := 'eeeeeeee-0000-0000-0000-000000000010';  -- store
+  -- ── UUIDs fijos del entorno local (todos son UUID v4 válidos) ──────────────
+  v_uid  CONSTANT uuid := 'e0eedc00-0000-4000-8000-000000000001';  -- auth user
+  v_iid  CONSTANT uuid := 'e0eedc00-0000-4000-8000-000000000002';  -- auth identity
+  v_sid  CONSTANT uuid := 'e0eedc00-0000-4000-8000-000000000010';  -- store
 
   -- Categorías raíz
-  v_cat_raquetas   CONSTANT uuid := 'eeeeeeee-0001-0000-0000-000000000001';
-  v_cat_pelotas    CONSTANT uuid := 'eeeeeeee-0001-0000-0000-000000000002';
-  v_cat_calzado    CONSTANT uuid := 'eeeeeeee-0001-0000-0000-000000000003';
-  v_cat_accesorios CONSTANT uuid := 'eeeeeeee-0001-0000-0000-000000000004';
+  v_cat_raquetas   CONSTANT uuid := 'e0eedc00-0001-4000-8000-000000000001';
+  v_cat_pelotas    CONSTANT uuid := 'e0eedc00-0001-4000-8000-000000000002';
+  v_cat_calzado    CONSTANT uuid := 'e0eedc00-0001-4000-8000-000000000003';
+  v_cat_accesorios CONSTANT uuid := 'e0eedc00-0001-4000-8000-000000000004';
 
   -- Subcategorías
-  v_sub_padel_raq  CONSTANT uuid := 'eeeeeeee-0001-0000-0000-000000000011';
-  v_sub_tenis_raq  CONSTANT uuid := 'eeeeeeee-0001-0000-0000-000000000012';
-  v_sub_padel_pel  CONSTANT uuid := 'eeeeeeee-0001-0000-0000-000000000021';
-  v_sub_padel_cal  CONSTANT uuid := 'eeeeeeee-0001-0000-0000-000000000031';
+  v_sub_padel_raq  CONSTANT uuid := 'e0eedc00-0001-4000-8000-000000000011';
+  v_sub_tenis_raq  CONSTANT uuid := 'e0eedc00-0001-4000-8000-000000000012';
+  v_sub_padel_pel  CONSTANT uuid := 'e0eedc00-0001-4000-8000-000000000021';
+  v_sub_padel_cal  CONSTANT uuid := 'e0eedc00-0001-4000-8000-000000000031';
 
   -- Productos
-  v_prod_1 CONSTANT uuid := 'eeeeeeee-0002-0000-0000-000000000001';
-  v_prod_2 CONSTANT uuid := 'eeeeeeee-0002-0000-0000-000000000002';
-  v_prod_3 CONSTANT uuid := 'eeeeeeee-0002-0000-0000-000000000003';
-  v_prod_4 CONSTANT uuid := 'eeeeeeee-0002-0000-0000-000000000004';
-  v_prod_5 CONSTANT uuid := 'eeeeeeee-0002-0000-0000-000000000005';
+  v_prod_1 CONSTANT uuid := 'e0eedc00-0002-4000-8000-000000000001';
+  v_prod_2 CONSTANT uuid := 'e0eedc00-0002-4000-8000-000000000002';
+  v_prod_3 CONSTANT uuid := 'e0eedc00-0002-4000-8000-000000000003';
+  v_prod_4 CONSTANT uuid := 'e0eedc00-0002-4000-8000-000000000004';
+  v_prod_5 CONSTANT uuid := 'e0eedc00-0002-4000-8000-000000000005';
 
   -- Variantes (prod 1: tallas S/M/L; prod 4: números 40-43; resto: única)
-  v_var_1s CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000001';
-  v_var_1m CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000002';
-  v_var_1l CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000003';
-  v_var_2  CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000004';
-  v_var_3  CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000005';
-  v_var_4a CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000006';
-  v_var_4b CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000007';
-  v_var_4c CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000008';
-  v_var_4d CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000009';
-  v_var_5  CONSTANT uuid := 'eeeeeeee-0003-0000-0000-000000000010';
+  v_var_1s CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000001';
+  v_var_1m CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000002';
+  v_var_1l CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000003';
+  v_var_2  CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000004';
+  v_var_3  CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000005';
+  v_var_4a CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000006';
+  v_var_4b CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000007';
+  v_var_4c CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000008';
+  v_var_4d CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000009';
+  v_var_5  CONSTANT uuid := 'e0eedc00-0003-4000-8000-000000000010';
 
   v_email CONSTANT text := 'test@local.test';
 BEGIN
