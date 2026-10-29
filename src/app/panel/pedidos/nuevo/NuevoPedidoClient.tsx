@@ -449,21 +449,23 @@ export default function NuevoPedidoClient({ variants }: Props) {
           </div>
         )}
 
-        {/* Costo de envío */}
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1" htmlFor="ship-cost">
-            Costo de envío <span className="text-muted font-normal">(dejar vacío = a confirmar)</span>
-          </label>
-          <input
-            id="ship-cost"
-            type="number"
-            min="0"
-            value={shippingCost}
-            onChange={e => setShippingCost(e.target.value)}
-            placeholder="Ej: 1500"
-            className="w-full h-11 px-3 rounded-input border border-border bg-surface text-sm text-foreground placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40"
-          />
-        </div>
+        {/* Costo de envío — solo para domicilio */}
+        {delivery === 'domicilio' && (
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1" htmlFor="ship-cost">
+              Costo de envío <span className="text-muted font-normal">(dejar vacío = a confirmar)</span>
+            </label>
+            <input
+              id="ship-cost"
+              type="number"
+              min="0"
+              value={shippingCost}
+              onChange={e => setShippingCost(e.target.value)}
+              placeholder="Ej: 1500"
+              className="w-full h-11 px-3 rounded-input border border-border bg-surface text-sm text-foreground placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40"
+            />
+          </div>
+        )}
       </div>
 
       {/* ── Extras ─────────────────────────────────────────────────────────────── */}

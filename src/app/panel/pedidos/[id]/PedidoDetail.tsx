@@ -198,10 +198,12 @@ export default function PedidoDetail({ order, storeName }: Props) {
               Marcar como entregado
             </Button>
           )}
-          <Button variant="secondary" onClick={() => setShowEnvioModal(true)} loading={isPending}>
-            <Truck className="w-4 h-4" aria-hidden="true" />
-            Fijar envío
-          </Button>
+          {order.delivery_method === 'domicilio' && (
+            <Button variant="secondary" onClick={() => setShowEnvioModal(true)} loading={isPending}>
+              <Truck className="w-4 h-4" aria-hidden="true" />
+              Fijar envío
+            </Button>
+          )}
           <Button variant="danger" onClick={() => setShowCancelarModal(true)} loading={isPending}>
             <XCircle className="w-4 h-4" aria-hidden="true" />
             Cancelar pedido
@@ -300,9 +302,11 @@ export default function PedidoDetail({ order, storeName }: Props) {
           <div className="flex justify-between text-sm text-muted">
             <span>Envío</span>
             <span>
-              {order.shipping_cost != null
-                ? formatPrice(order.shipping_cost)
-                : <span className="italic">A confirmar</span>
+              {order.delivery_method === 'retiro'
+                ? formatPrice(0)
+                : order.shipping_cost != null
+                  ? formatPrice(order.shipping_cost)
+                  : <span className="italic">A confirmar</span>
               }
             </span>
           </div>
