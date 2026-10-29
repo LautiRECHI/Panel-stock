@@ -141,12 +141,6 @@ export default function CategoriesClient({ tree }: Props) {
     }
   }
 
-  const modalKey =
-    modal.type === 'create' ? `create-${modal.parentId ?? 'root'}`
-    : modal.type === 'rename' ? `rename-${modal.id}`
-    : modal.type === 'delete' ? `delete-${modal.id}`
-    : 'closed'
-
   return (
     <div className="max-w-2xl">
       {/* Encabezado */}
@@ -259,7 +253,7 @@ export default function CategoriesClient({ tree }: Props) {
 
       {/* Modal: crear */}
       <Modal
-        key={modalKey}
+        key="modal-create"
         open={modal.type === 'create'}
         onClose={closeModal}
         title={
@@ -293,7 +287,7 @@ export default function CategoriesClient({ tree }: Props) {
 
       {/* Modal: renombrar */}
       <Modal
-        key={modalKey}
+        key={modal.type === 'rename' ? `modal-rename-${modal.id}` : 'modal-rename'}
         open={modal.type === 'rename'}
         onClose={closeModal}
         title="Renombrar categoría"
@@ -323,7 +317,7 @@ export default function CategoriesClient({ tree }: Props) {
 
       {/* Modal: eliminar */}
       <Modal
-        key={modalKey}
+        key={modal.type === 'delete' ? `modal-delete-${modal.id}` : 'modal-delete'}
         open={modal.type === 'delete'}
         onClose={closeModal}
         title="Eliminar categoría"
