@@ -49,24 +49,29 @@ export default function Modal({
     [onClose]
   )
 
+  // Initial focus runs only when open changes — not when onClose/trapFocus changes.
+  // Separating it prevents re-focusing every time the parent re-renders with a new onClose ref.
   useEffect(() => {
-    if (open) {
-      previousFocusRef.current = document.activeElement as HTMLElement
-      const timeout = setTimeout(() => {
-        dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE)[0]?.focus()
-      }, 50)
-      document.addEventListener('keydown', trapFocus)
-      document.body.style.overflow = 'hidden'
-      return () => {
-        clearTimeout(timeout)
-        document.removeEventListener('keydown', trapFocus)
-        document.body.style.overflow = ''
-      }
-    } else {
+    if (!open) {
       previousFocusRef.current?.focus()
-      document.removeEventListener('keydown', trapFocus)
+      document.body.style.overflow = ''
+      return
+    }
+    previousFocusRef.current = document.activeElement as HTMLElement
+    document.body.style.overflow = 'hidden'
+    const timeout = setTimeout(() => {
+      dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE)[0]?.focus()
+    }, 50)
+    return () => {
+      clearTimeout(timeout)
       document.body.style.overflow = ''
     }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    document.addEventListener('keydown', trapFocus)
+    return () => document.removeEventListener('keydown', trapFocus)
   }, [open, trapFocus])
 
   if (!open) return null
