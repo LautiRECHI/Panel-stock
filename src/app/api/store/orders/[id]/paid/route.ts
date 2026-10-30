@@ -24,6 +24,14 @@ export async function POST(
   const apiKey = authHeader.slice(7)
   const { id } = await params
 
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  if (!uuidRe.test(id)) {
+    return NextResponse.json({ error: 'ID de pedido inválido' }, {
+      status: 422,
+      headers: { 'Cache-Control': 'no-store' },
+    })
+  }
+
   let body: unknown
   try {
     body = await req.json()
