@@ -2,7 +2,8 @@ export type OrderStatus = 'pendiente' | 'pagado' | 'enviado' | 'entregado' | 'ca
 export type DeliveryMethod = 'retiro' | 'domicilio'
 export type PaymentMethod = 'transferencia' | 'efectivo' | 'mercadopago' | 'dlocalgo' | 'otro'
 export type OrderSource = 'panel' | 'tienda' | 'whatsapp'
-export type OrderEventType = 'creado' | 'pagado' | 'estado_cambiado' | 'cancelado' | 'nota'
+export type OrderEventType = 'creado' | 'pagado' | 'estado_cambiado' | 'cancelado' | 'nota' | 'vencido'
+export type PaymentStatus = 'pendiente' | 'aprobado' | 'rechazado' | 'vencido'
 
 export interface Order {
   id: string
@@ -32,6 +33,12 @@ export interface Order {
   paid_by: string | null
   source: OrderSource
   notes: string | null
+  customer_note: string | null
+  expires_at: string | null
+  public_token: string | null
+  payment_status: PaymentStatus | null
+  payment_provider: string | null
+  external_payment_id: string | null
   created_at: string
   updated_at: string
 }
@@ -143,6 +150,13 @@ export const ORDER_EVENT_LABELS: Record<OrderEventType, string> = {
   estado_cambiado: 'Estado actualizado',
   cancelado:       'Pedido cancelado',
   nota:            'Nota',
+  vencido:         'Pedido vencido',
+}
+
+export const SOURCE_BADGE: Record<string, string> = {
+  panel:    'bg-blue-100 text-blue-700',
+  tienda:   'bg-purple-100 text-purple-700',
+  whatsapp: 'bg-green-100 text-green-700',
 }
 
 export const SOURCE_LABELS: Record<OrderSource, string> = {

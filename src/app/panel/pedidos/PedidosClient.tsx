@@ -9,6 +9,8 @@ import {
   ORDER_STATUS_LABELS,
   ORDER_STATUS_CHIP,
   DELIVERY_METHOD_LABELS,
+  SOURCE_BADGE,
+  SOURCE_LABELS,
   formatPrice,
   formatOrderNumber,
   ORDER_FILTER_STATUSES,
@@ -158,6 +160,7 @@ export default function PedidosClient({
               <thead>
                 <tr className="border-b border-border bg-surface">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Pedido</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Origen</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Fecha</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Cliente</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Entrega</th>
@@ -175,6 +178,16 @@ export default function PedidosClient({
                   >
                     <td className="px-4 py-3 font-medium text-foreground">
                       {formatOrderNumber(order.number)}
+                      {order.source === 'tienda' && order.status === 'pendiente' && order.expires_at && (
+                        <p className="text-xs text-amber-600 font-normal mt-0.5">
+                          Vence {formatDate(order.expires_at)}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SOURCE_BADGE[order.source] ?? 'bg-surface text-muted'}`}>
+                        {SOURCE_LABELS[order.source]}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-muted whitespace-nowrap">
                       {formatDate(order.created_at)}
@@ -225,12 +238,20 @@ export default function PedidosClient({
                     <span className="font-semibold text-foreground">{formatOrderNumber(order.number)}</span>
                     <span className="text-muted text-xs ml-2">{formatDate(order.created_at)}</span>
                   </div>
-                  <StatusChip
-                    status={ORDER_STATUS_CHIP[order.status]}
-                    label={ORDER_STATUS_LABELS[order.status]}
-                  />
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SOURCE_BADGE[order.source] ?? 'bg-surface text-muted'}`}>
+                      {SOURCE_LABELS[order.source]}
+                    </span>
+                    <StatusChip
+                      status={ORDER_STATUS_CHIP[order.status]}
+                      label={ORDER_STATUS_LABELS[order.status]}
+                    />
+                  </div>
                 </div>
                 <p className="text-sm font-medium text-foreground">{order.customer_name}</p>
+                {order.source === 'tienda' && order.status === 'pendiente' && order.expires_at && (
+                  <p className="text-xs text-amber-600">Vence {formatDate(order.expires_at)}</p>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted">{DELIVERY_METHOD_LABELS[order.delivery_method]}</span>
                   <span className="text-sm font-semibold text-foreground">{formatPrice(order.total)}</span>

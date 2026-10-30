@@ -2,8 +2,8 @@
 
 ## Etapas siguientes de Pedidos
 
-### Etapa 2 — Carrito y checkout público
-Endpoint público `POST /api/v1/[store_slug]/orders` para que el frontend de la tienda cree pedidos (carrito + checkout). Requiere: anti-spam (rate limit por IP y por tienda), validación de origen CORS, y que el campo `source` quede en `'tienda'`. El endpoint debe ser completamente stateless (sin sesión de usuario).
+### ✅ Etapa 2a — Canal server-to-server con API keys _(implementada)_
+Tabla `store_api_keys`, funciones PL/pgSQL SECURITY DEFINER (`storefront_create_order`, `storefront_get_order`, `storefront_mark_paid`, `storefront_cancel_order`, `expire_pending_orders`), 4 routes en `/api/store/orders/`, y UI de gestión en `/panel/integraciones`. Autenticación por Bearer token con hash SHA-256; rate limit 3 pedidos/email o teléfono en 24h; stock descontado en la creación y devuelto al cancelar.
 
 ### Etapa 3 — Cotización de envío con Correo Argentino
 Agregar `weight_g` y `dimensions_cm` (largo, ancho, alto) a `product_variants`. Almacenar credenciales de Correo Argentino cifradas por tienda (campo en `stores`, nunca en `.env`). Integrar la API de Correo para cotizar envíos al vuelo en el checkout público y en la creación manual.

@@ -15,6 +15,7 @@ import {
   LogOut,
   Menu,
   X,
+  KeyRound,
 } from 'lucide-react'
 import { logout } from '@/app/auth/actions'
 
@@ -46,6 +47,7 @@ function buildNavItems(pendingOrdersCount: number): NavItem[] {
     },
     { icon: ArrowLeftRight, label: 'Movimientos de stock', disabled: true },
     { icon: MessageSquare, label: 'Consultas', disabled: true },
+    { href: '/panel/integraciones', icon: KeyRound, label: 'Integraciones' },
     { href: '/panel/cuenta', icon: User, label: 'Mi cuenta' },
     { icon: Settings, label: 'Configuración', disabled: true },
   ]

@@ -33,6 +33,12 @@ function toOrder(row: Record<string, unknown>): Order {
     paid_by:              (row.paid_by as string | null) ?? null,
     source:               row.source as Order['source'],
     notes:                (row.notes as string | null) ?? null,
+    customer_note:        (row.customer_note as string | null) ?? null,
+    expires_at:           (row.expires_at as string | null) ?? null,
+    public_token:         (row.public_token as string | null) ?? null,
+    payment_status:       (row.payment_status as Order['payment_status']) ?? null,
+    payment_provider:     (row.payment_provider as string | null) ?? null,
+    external_payment_id:  (row.external_payment_id as string | null) ?? null,
     created_at:           row.created_at as string,
     updated_at:           row.updated_at as string,
   }
@@ -54,6 +60,9 @@ export async function getOrders(
 ): Promise<{ orders: OrderListItem[]; total: number; pendingCount: number }> {
   const supabase = await createClient()
   const { status, search, page = 1 } = filter
+
+  // Limpiar pedidos online vencidos de forma oportunística
+  await supabase.rpc('expire_pending_orders', { p_store_id: storeId })
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
