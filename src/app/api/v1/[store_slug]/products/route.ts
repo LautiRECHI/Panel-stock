@@ -5,7 +5,8 @@
 //   search      — texto libre; busca en nombre y marca, máx. 100 chars (opcional)
 //   limit       — resultados por página, 1-60, defecto 24 (opcional)
 //   offset      — desplazamiento para paginación, defecto 0 (opcional)
-// La respuesta incluye `total` (total sin paginar) y `cover_url` por producto.
+// La respuesta incluye `total` (total sin paginar), `cover_url`, `images` (URLs de las primeras
+// 5 fotos), `default_variant_id` y `default_max_quantity` por producto.
 
 import { NextResponse } from 'next/server'
 import { createAnonClient } from '@/lib/supabase/anon'
@@ -67,6 +68,9 @@ export async function GET(
     const out = { ...item }
     delete out.total_count
     out.cover_url = typeof out.cover_path === 'string' ? toImageUrl(out.cover_path) : null
+    const rawPaths = out.image_paths as string[] | null
+    out.images = Array.isArray(rawPaths) ? rawPaths.map(p => toImageUrl(p)) : []
+    delete out.image_paths
     return out
   })
 

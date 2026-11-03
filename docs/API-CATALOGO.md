@@ -20,7 +20,8 @@ https://tu-panel.example.com/api/v1/{store_slug}
    - [GET /api/v1/{store_slug}/products — Listado de productos](#33-get-apiv1store_slugproducts)
    - [GET /api/v1/{store_slug}/products/{product_slug} — Detalle de producto](#34-get-apiv1store_slugproductsproduct_slug)
 4. [Campo max_quantity](#4-campo-max_quantity)
-5. [Variables de entorno](#5-variables-de-entorno)
+5. [Campos images, default_variant_id y default_max_quantity (listado)](#5-campos-images-default_variant_id-y-default_max_quantity-listado)
+6. [Variables de entorno](#6-variables-de-entorno)
 
 ---
 
@@ -106,7 +107,13 @@ Retorna el listado paginado de productos activos.
       "category_slug": "paletas",
       "subcategory_slug": null,
       "cover_url": "https://…/storage/v1/object/public/product-images/…",
-      "in_stock": true
+      "in_stock": true,
+      "images": [
+        "https://…/storage/v1/object/public/product-images/…/foto-00.jpg",
+        "https://…/storage/v1/object/public/product-images/…/foto-01.jpg"
+      ],
+      "default_variant_id": "uuid-o-null",
+      "default_max_quantity": 5
     }
   ],
   "total": 42,
@@ -115,7 +122,17 @@ Retorna el listado paginado de productos activos.
 }
 ```
 
-> `cover_url` es la URL pública de la imagen de portada. `cover_path` no se incluye en la respuesta.
+#### Campos del ítem
+
+| Campo                  | Tipo           | Descripción                                                                 |
+|------------------------|----------------|-----------------------------------------------------------------------------|
+| `cover_url`            | string\|null   | URL pública de la imagen de portada (position mínima). `null` sin fotos.    |
+| `in_stock`             | boolean        | `true` si alguna variante activa tiene stock > 0.                           |
+| `images`               | string[]       | URLs de las primeras 5 fotos ordenadas por position (vacío si no hay).      |
+| `default_variant_id`   | uuid\|null     | ID de la variante si hay **exactamente una** activa; `null` si hay varias.  |
+| `default_max_quantity` | integer\|null  | `min(stock, 20)` de esa variante única; `null` si hay varias o ninguna.     |
+
+> `images[0]` siempre coincide con `cover_url` cuando el producto tiene fotos.
 
 ---
 
@@ -172,7 +189,7 @@ Retorna el detalle de un producto activo con todas sus imágenes y variantes.
 
 ---
 
-## 4. Campo max_quantity
+## 4. Campo `max_quantity`
 
 `max_quantity` indica cuántas unidades puede agregar al carrito un comprador para esa variante específica.
 
@@ -194,7 +211,41 @@ const maxQty = variant.max_quantity  // ya está acotado a 20
 
 ---
 
-## 5. Variables de entorno
+---
+
+## 5. Campos `images`, `default_variant_id` y `default_max_quantity` (listado)
+
+Estos tres campos se incluyen en cada ítem del endpoint de listado y están pensados para que el frontend pueda mostrar una galería rápida y agregar al carrito sin necesidad de pedir el detalle del producto.
+
+### `images`
+
+Array de URLs de las primeras **5 fotos** del producto, ordenadas por `position` (la misma que determina `cover_url`). Array vacío `[]` si el producto no tiene imágenes.
+
+```ts
+// Galería de miniaturas en la tarjeta del producto
+product.images.forEach(url => {
+  const img = document.createElement('img')
+  img.src = url
+  gallery.appendChild(img)
+})
+```
+
+### `default_variant_id` y `default_max_quantity`
+
+Cuando un producto tiene **exactamente una** variante activa, se exponen `default_variant_id` (el UUID de esa variante) y `default_max_quantity` (`min(stock, 20)`). Si hay más de una variante o ninguna, ambos campos son `null`.
+
+Esto permite que el frontend muestre un botón "Agregar al carrito" directo en el listado, sin necesidad de visitar el detalle, cuando no hay elección de variante.
+
+```ts
+// Botón directo en listado (solo si hay variante única)
+if (product.default_variant_id && product.default_max_quantity > 0) {
+  showAddToCartButton(product.default_variant_id, product.default_max_quantity)
+}
+```
+
+---
+
+## 6. Variables de entorno
 
 Solo es necesario `NEXT_PUBLIC_SUPABASE_URL` para construir las URLs de imágenes. No se requiere ninguna clave de API para consumir el catálogo.
 
