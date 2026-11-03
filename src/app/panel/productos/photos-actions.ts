@@ -10,19 +10,19 @@ async function resolveStoreId(): Promise<string | null> {
   return (stores as { id: string }[] | null)?.[0]?.id ?? null
 }
 
-export async function uploadPhotos(
+/**
+ * Registra en la BD una imagen ya subida a Storage.
+ * La posición se calcula automáticamente (max+1) para evitar condiciones de carrera.
+ */
+export async function registerPhoto(
   productId: string,
-  formData: FormData
-): Promise<{ success: boolean; uploaded: number; failed: string[] }> {
+  path: string
+): Promise<ActionResult & { id?: string }> {
   const storeId = await resolveStoreId()
-  if (!storeId) return { success: false, uploaded: 0, failed: [] }
+  if (!storeId) return { success: false, error: 'No autenticado.' }
 
   const supabase = await createClient()
-  const photos = formData.getAll('photos') as File[]
 
-  if (!photos.length) return { success: true, uploaded: 0, failed: [] }
-
-  // Obtener la última posición usada
   const { data: existing } = await supabase
     .from('product_images')
     .select('position')
@@ -31,50 +31,22 @@ export async function uploadPhotos(
     .order('position', { ascending: false })
     .limit(1)
 
-  let nextPosition = ((existing as { position: number }[] | null)?.[0]?.position ?? -1) + 1
+  const nextPosition =
+    ((existing as { position: number }[] | null)?.[0]?.position ?? -1) + 1
 
-  let uploaded = 0
-  const failed: string[] = []
+  const { data, error } = await supabase
+    .from('product_images')
+    .insert({ store_id: storeId, product_id: productId, path, position: nextPosition })
+    .select('id')
+    .single()
 
-  for (const photo of photos) {
-    const uuid = crypto.randomUUID()
-    // Determinar extensión basada en tipo MIME
-    const ext = photo.type === 'image/webp' ? 'webp' : 'jpg'
-    const path = `${storeId}/products/${productId}/${uuid}.${ext}`
-
-    const { error: uploadError } = await supabase.storage
-      .from('product-images')
-      .upload(path, photo, { contentType: photo.type, upsert: false })
-
-    if (uploadError) {
-      failed.push(photo.name)
-      continue
-    }
-
-    const { error: insertError } = await supabase
-      .from('product_images')
-      .insert({
-        store_id: storeId,
-        product_id: productId,
-        path,
-        position: nextPosition,
-      })
-
-    if (insertError) {
-      // Intentar limpiar el archivo subido
-      await supabase.storage.from('product-images').remove([path])
-      failed.push(photo.name)
-      continue
-    }
-
-    nextPosition++
-    uploaded++
+  if (error) {
+    return { success: false, error: 'No se pudo registrar la foto.' }
   }
 
   revalidatePath(`/panel/productos/${productId}`)
   revalidatePath('/panel/productos')
-
-  return { success: true, uploaded, failed }
+  return { success: true, id: (data as { id: string }).id }
 }
 
 export async function deletePhoto(photoId: string): Promise<ActionResult> {
@@ -83,7 +55,6 @@ export async function deletePhoto(photoId: string): Promise<ActionResult> {
 
   const supabase = await createClient()
 
-  // Obtener la foto
   const { data: photoData, error: fetchError } = await supabase
     .from('product_images')
     .select('path, product_id, position')
@@ -97,7 +68,6 @@ export async function deletePhoto(photoId: string): Promise<ActionResult> {
 
   const photo = photoData as { path: string; product_id: string; position: number }
 
-  // Borrar del Storage
   const { error: storageError } = await supabase.storage
     .from('product-images')
     .remove([photo.path])
@@ -106,7 +76,6 @@ export async function deletePhoto(photoId: string): Promise<ActionResult> {
     return { success: false, error: 'No se pudo eliminar la imagen del almacenamiento.' }
   }
 
-  // Borrar el registro de la BD
   const { error: deleteError } = await supabase
     .from('product_images')
     .delete()
@@ -143,6 +112,25 @@ export async function deletePhoto(photoId: string): Promise<ActionResult> {
   return { success: true }
 }
 
+export async function bulkSetPhotoPositions(
+  updates: { id: string; position: number }[],
+  productId: string
+): Promise<ActionResult> {
+  const storeId = await resolveStoreId()
+  if (!storeId) return { success: false, error: 'No autenticado.' }
+
+  const supabase = await createClient()
+  for (const { id, position } of updates) {
+    await supabase
+      .from('product_images')
+      .update({ position })
+      .eq('id', id)
+      .eq('store_id', storeId)
+  }
+  revalidatePath(`/panel/productos/${productId}`)
+  return { success: true }
+}
+
 export async function reorderPhoto(
   photoId: string,
   direction: 'left' | 'right'
@@ -152,7 +140,6 @@ export async function reorderPhoto(
 
   const supabase = await createClient()
 
-  // Obtener la foto actual
   const { data: photoData, error: fetchError } = await supabase
     .from('product_images')
     .select('position, product_id')
@@ -165,9 +152,9 @@ export async function reorderPhoto(
   }
 
   const photo = photoData as { position: number; product_id: string }
-  const neighborPosition = direction === 'left' ? photo.position - 1 : photo.position + 1
+  const neighborPosition =
+    direction === 'left' ? photo.position - 1 : photo.position + 1
 
-  // Obtener el vecino
   const { data: neighborData, error: neighborError } = await supabase
     .from('product_images')
     .select('id')
@@ -182,7 +169,6 @@ export async function reorderPhoto(
 
   const neighbor = neighborData as { id: string }
 
-  // Intercambiar posiciones
   const { error: e1 } = await supabase
     .from('product_images')
     .update({ position: neighborPosition })

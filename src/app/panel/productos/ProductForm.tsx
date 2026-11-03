@@ -1,33 +1,34 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { ProductFull } from '@/lib/products-utils'
 import type { CategoryNode } from '@/lib/categories'
 import { formatPrice, parsePrice } from '@/lib/products-utils'
 import { createProduct, updateProduct } from './actions'
-import { uploadPhotos } from './photos-actions'
 import { upsertVariants, setDefaultVariantStockZero, setVariantStock } from './variants-actions'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Textarea from '@/components/ui/Textarea'
 import Select from '@/components/ui/Select'
 import { useToast } from '@/components/ui/Toast'
-import PhotosSection, { type PendingPhoto } from './PhotosSection'
+import PhotosSection, { type PhotosSectionHandle } from './PhotosSection'
 import VariantsSection, { type VariantRowData } from './VariantsSection'
 
 interface Props {
   product?: ProductFull
   categories: CategoryNode[]
+  storeId: string
 }
 
-export default function ProductForm({ product, categories }: Props) {
+export default function ProductForm({ product, categories, storeId }: Props) {
   const router = useRouter()
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
   const [formError, setFormError] = useState<string | null>(null)
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
+  const photosSectionRef = useRef<PhotosSectionHandle>(null)
 
   const isEdit = !!product
 
@@ -37,12 +38,11 @@ export default function ProductForm({ product, categories }: Props) {
   const [brand, setBrand] = useState(product?.brand ?? '')
   const [sku, setSku] = useState(product?.default_sku ?? '')
 
-  // Stock inicial para productos simples (sin variantes)
-  const defaultVariantStock = product?.variants?.find(v => Object.keys(v.attributes).length === 0)?.stock ?? 0
+  const defaultVariantStock =
+    product?.variants?.find(v => Object.keys(v.attributes).length === 0)?.stock ?? 0
   const [stock, setStock] = useState(!product?.has_variants ? defaultVariantStock : 0)
 
   const [variantsEnabled, setVariantsEnabled] = useState(product?.has_variants ?? false)
-  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([])
   const [variantRows, setVariantRows] = useState<VariantRowData[]>([])
 
   const findCategorySelection = (): { rootId: string; subId: string } => {
@@ -92,26 +92,17 @@ export default function ProductForm({ product, categories }: Props) {
         })
         if (!res.success) { setFormError(res.error); return }
 
-        // Stock para productos simples: solo si cambió respecto al valor original
         if (!variantsEnabled && product.default_variant_id && stock !== defaultVariantStock) {
-          const stockRes = await setVariantStock(product.default_variant_id, stock, 'edición de producto')
+          const stockRes = await setVariantStock(
+            product.default_variant_id,
+            stock,
+            'edición de producto'
+          )
           if (!stockRes.success) { setFormError(stockRes.error); return }
         }
 
-        // Fotos pendientes
-        if (pendingPhotos.length > 0) {
-          const fd = new FormData()
-          for (const p of pendingPhotos) {
-            const file = new File([p.blob], `${crypto.randomUUID()}.${p.ext}`, { type: p.mimeType })
-            fd.append('photos', file)
-          }
-          const photoRes = await uploadPhotos(product.id, fd)
-          if (photoRes.failed.length > 0) {
-            toast(`Se subieron ${photoRes.uploaded} fotos. Fallaron: ${photoRes.failed.join(', ')}`, 'warning')
-          }
-        }
+        // En EDIT las fotos se suben de inmediato al seleccionarlas; nada que hacer aquí.
 
-        // Variantes
         if (variantsEnabled || variantRows.length > 0) {
           const isConverting = !product.has_variants && variantsEnabled
           if (isConverting && product.default_variant_id && product.total_stock > 0) {
@@ -152,15 +143,14 @@ export default function ProductForm({ product, categories }: Props) {
 
         const productId = res.productId!
 
-        if (pendingPhotos.length > 0) {
-          const fd = new FormData()
-          for (const p of pendingPhotos) {
-            const file = new File([p.blob], `${crypto.randomUUID()}.${p.ext}`, { type: p.mimeType })
-            fd.append('photos', file)
-          }
-          const photoRes = await uploadPhotos(productId, fd)
+        // Subir fotos pendientes una por una, directo a Storage desde el navegador
+        if (photosSectionRef.current) {
+          const photoRes = await photosSectionRef.current.uploadAllPending(productId, storeId)
           if (photoRes.failed.length > 0) {
-            toast(`Se subieron ${photoRes.uploaded} fotos. Fallaron: ${photoRes.failed.join(', ')}`, 'warning')
+            toast(
+              `Se subieron ${photoRes.uploaded} foto${photoRes.uploaded !== 1 ? 's' : ''}. Fallaron: ${photoRes.failed.join(', ')}`,
+              'warning'
+            )
           }
         }
 
@@ -317,9 +307,10 @@ export default function ProductForm({ product, categories }: Props) {
 
       {/* Fotos */}
       <PhotosSection
+        ref={photosSectionRef}
         productId={product?.id}
+        storeId={storeId}
         initialImages={product?.images ?? []}
-        onPendingChange={setPendingPhotos}
       />
 
       {/* Variantes */}

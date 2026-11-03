@@ -34,7 +34,7 @@ export default async function EditarProductoPage({ params }: Props) {
         <h1 className="text-2xl font-semibold text-foreground">Editar producto</h1>
         <p className="text-muted text-sm mt-0.5 truncate">{product.name}</p>
       </div>
-      <ProductForm product={product} categories={tree} />
+      <ProductForm product={product} categories={tree} storeId={storeId} />
     </div>
   )
 }

@@ -1,133 +1,304 @@
 'use client'
 
-import { useState, useRef, useCallback, useTransition } from 'react'
-import { ImageIcon, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  useState, useRef, useCallback, useTransition,
+  forwardRef, useImperativeHandle, useEffect,
+} from 'react'
+import {
+  ImageIcon, Trash2, ChevronLeft, ChevronRight, RotateCcw, AlertCircle,
+} from 'lucide-react'
 import type { ProductImageData } from '@/lib/products-utils'
-import { validateImageFile, resizeAndConvert } from '@/lib/image-utils'
-import { deletePhoto, reorderPhoto } from './photos-actions'
+import { validateImageFile, resizeAndConvert, MAX_PRODUCT_IMAGES } from '@/lib/image-utils'
+import { registerPhoto, deletePhoto, bulkSetPhotoPositions } from './photos-actions'
+import { createClient } from '@/lib/supabase/client'
 import Modal from '@/components/ui/Modal'
 
-export type PendingPhoto = {
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type ExistingItem = { kind: 'existing'; data: ProductImageData }
+type LocalItem = {
+  kind: 'pending' | 'uploading' | 'error'
+  localId: string
+  previewUrl: string
+  name: string
   blob: Blob
   mimeType: string
   ext: string
-  previewUrl: string
-  name: string
+  progress?: number
+  errorMsg?: string
+}
+type PhotoItem = ExistingItem | LocalItem
+
+export interface PhotosSectionHandle {
+  uploadAllPending: (
+    productId: string,
+    storeId: string
+  ) => Promise<{ uploaded: number; failed: string[] }>
 }
 
 interface Props {
   productId?: string
+  storeId: string
   initialImages: ProductImageData[]
-  onPendingChange: (pending: PendingPhoto[]) => void
 }
 
-const MAX_PHOTOS = 8
+// ── Component ─────────────────────────────────────────────────────────────────
 
-export default function PhotosSection({ productId, initialImages, onPendingChange }: Props) {
-  const [existing, setExisting] = useState<ProductImageData[]>(initialImages)
-  const [pending, setPending] = useState<PendingPhoto[]>([])
-  const [errors, setErrors] = useState<string[]>([])
+const PhotosSection = forwardRef<PhotosSectionHandle, Props>(function PhotosSection(
+  { productId, storeId, initialImages },
+  ref
+) {
+  const [items, setItems] = useState<PhotoItem[]>(
+    initialImages.map(d => ({ kind: 'existing' as const, data: d }))
+  )
+  const [fileErrors, setFileErrors] = useState<string[]>([])
   const [deleteTarget, setDeleteTarget] = useState<ProductImageData | null>(null)
-  const [isPending, startTransition] = useTransition()
+  const [, startTransition] = useTransition()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const dropZoneRef = useRef<HTMLDivElement>(null)
-  const [isDragging, setIsDragging] = useState(false)
+  const [isDraggingZone, setIsDraggingZone] = useState(false)
+  const [dragSrcIdx, setDragSrcIdx] = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
-  const total = existing.length + pending.length
+  // Siempre tener la lista actualizada en el ref para cerrar la clausura de processFiles
+  const itemsRef = useRef(items)
+  useEffect(() => { itemsRef.current = items }, [items])
 
-  function updatePending(next: PendingPhoto[]) {
-    setPending(next)
-    onPendingChange(next)
-  }
+  const isUploadingAny = items.some(i => i.kind === 'uploading')
+  const total = items.length
+  const slotsLeft = MAX_PRODUCT_IMAGES - total
 
-  const processFiles = useCallback(async (files: FileList | File[]) => {
-    const fileArr = Array.from(files)
-    const newErrors: string[] = []
-    const newPhotos: PendingPhoto[] = []
+  // ── Upload individual ────────────────────────────────────────────────────
 
-    for (const file of fileArr) {
-      if (existing.length + pending.length + newPhotos.length >= MAX_PHOTOS) {
-        newErrors.push(`Solo se pueden subir hasta ${MAX_PHOTOS} fotos por producto.`)
-        break
-      }
+  async function uploadOne(
+    localId: string,
+    blob: Blob,
+    mimeType: string,
+    ext: string,
+    pid: string,
+    sid: string
+  ): Promise<{ path: string; dbId: string } | { error: string }> {
+    const uuid = crypto.randomUUID()
+    const path = `${sid}/products/${pid}/${uuid}.${ext}`
 
-      const err = validateImageFile(file)
-      if (err) {
-        newErrors.push(`${file.name}: ${err}`)
-        continue
-      }
+    setItems(prev =>
+      prev.map(item =>
+        'localId' in item && item.localId === localId
+          ? { ...item, kind: 'uploading' as const, progress: 0, errorMsg: undefined }
+          : item
+      )
+    )
 
-      try {
-        const { blob, mimeType, ext } = await resizeAndConvert(file)
-        const previewUrl = URL.createObjectURL(blob)
-        newPhotos.push({ blob, mimeType, ext, previewUrl, name: file.name })
-      } catch {
-        newErrors.push(`${file.name}: No se pudo procesar la imagen.`)
-      }
+    const supabase = createClient()
+
+    // Progreso simulado: avanza hasta 85% mientras dura el upload
+    let pct = 0
+    const timer = setInterval(() => {
+      pct = Math.min(85, pct + (pct < 40 ? 8 : pct < 70 ? 4 : 1))
+      setItems(prev =>
+        prev.map(item =>
+          'localId' in item && item.localId === localId
+            ? { ...item, progress: pct }
+            : item
+        )
+      )
+    }, 120)
+
+    const { error: uploadError } = await supabase.storage
+      .from('product-images')
+      .upload(path, blob, { contentType: mimeType, upsert: false })
+
+    clearInterval(timer)
+
+    if (uploadError) {
+      const msg =
+        uploadError.message.toLowerCase().includes('duplicate') ||
+        uploadError.message.includes('already exists')
+          ? 'La imagen ya existe en el servidor.'
+          : uploadError.message.includes('403') ||
+            uploadError.message.toLowerCase().includes('unauthorized') ||
+            uploadError.message.toLowerCase().includes('not allowed')
+          ? 'Sin permiso para subir imágenes en esta tienda.'
+          : uploadError.message.toLowerCase().includes('network') ||
+            uploadError.message.toLowerCase().includes('fetch')
+          ? 'Error de red. Verificá tu conexión y reintentá.'
+          : `Error al subir: ${uploadError.message}`
+      return { error: msg }
     }
 
-    setErrors(newErrors)
-    if (newPhotos.length > 0) {
-      const next = [...pending, ...newPhotos]
-      updatePending(next)
+    setItems(prev =>
+      prev.map(item =>
+        'localId' in item && item.localId === localId
+          ? { ...item, progress: 95 }
+          : item
+      )
+    )
+
+    const res = await registerPhoto(pid, path)
+    if (!res.success) {
+      // Limpiar archivo huérfano
+      supabase.storage.from('product-images').remove([path])
+      return { error: res.error ?? 'No se pudo registrar la foto en la base de datos.' }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existing.length, pending])
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files?.length) {
-      processFiles(e.target.files)
-      e.target.value = ''
-    }
+    return { path, dbId: res.id! }
   }
 
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault()
-    setIsDragging(true)
+  function resolveUpload(
+    localId: string,
+    previewUrl: string,
+    path: string,
+    dbId: string
+  ) {
+    setItems(prev =>
+      prev.map(item =>
+        'localId' in item && item.localId === localId
+          ? {
+              kind: 'existing' as const,
+              data: {
+                id: dbId,
+                path,
+                position: prev.filter(i => i.kind === 'existing').length,
+                url: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product-images/${path}`,
+              },
+            }
+          : item
+      )
+    )
+    URL.revokeObjectURL(previewUrl)
   }
 
-  function handleDragLeave() {
-    setIsDragging(false)
+  function rejectUpload(localId: string, errorMsg: string) {
+    setItems(prev =>
+      prev.map(item =>
+        'localId' in item && item.localId === localId
+          ? { ...item, kind: 'error' as const, errorMsg, progress: undefined }
+          : item
+      )
+    )
   }
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault()
-    setIsDragging(false)
-    if (e.dataTransfer.files?.length) {
-      processFiles(e.dataTransfer.files)
-    }
-  }
+  // ── uploadAllPending (CREATE mode) ────────────────────────────────────────
 
-  // ── Reordenar (existentes) ────────────────────────────────────────────────
+  useImperativeHandle(ref, () => ({
+    async uploadAllPending(pid: string, sid: string) {
+      const pending = itemsRef.current.filter(
+        (i): i is LocalItem => i.kind === 'pending' || i.kind === 'error'
+      )
+      let uploaded = 0
+      const failed: string[] = []
 
-  function handleReorderExisting(photoId: string, direction: 'left' | 'right') {
-    startTransition(async () => {
-      const res = await reorderPhoto(photoId, direction)
-      if (res.success) {
-        setExisting(prev => {
-          const arr = [...prev]
-          const idx = arr.findIndex(p => p.id === photoId)
-          if (idx === -1) return prev
-          const swapIdx = direction === 'left' ? idx - 1 : idx + 1
-          if (swapIdx < 0 || swapIdx >= arr.length) return prev
-          ;[arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]]
-          return arr.map((p, i) => ({ ...p, position: i }))
-        })
+      for (const item of pending) {
+        const result = await uploadOne(item.localId, item.blob, item.mimeType, item.ext, pid, sid)
+        if ('error' in result) {
+          failed.push(item.name)
+          rejectUpload(item.localId, result.error)
+        } else {
+          uploaded++
+          resolveUpload(item.localId, item.previewUrl, result.path, result.dbId)
+        }
       }
-    })
+
+      return { uploaded, failed }
+    },
+  }))
+
+  // ── Procesar archivos ────────────────────────────────────────────────────
+
+  const processFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const fileArr = Array.from(files)
+      const newErrors: string[] = []
+      const newItems: LocalItem[] = []
+      const currentCount = itemsRef.current.length
+
+      for (const file of fileArr) {
+        if (currentCount + newItems.length >= MAX_PRODUCT_IMAGES) {
+          newErrors.push(
+            `Límite alcanzado: máximo ${MAX_PRODUCT_IMAGES} fotos por producto.`
+          )
+          break
+        }
+
+        const err = validateImageFile(file)
+        if (err) {
+          newErrors.push(`${file.name}: ${err}`)
+          continue
+        }
+
+        try {
+          const { blob, mimeType, ext } = await resizeAndConvert(file)
+          const previewUrl = URL.createObjectURL(blob)
+          const localId = crypto.randomUUID()
+          newItems.push({
+            kind: 'pending',
+            localId,
+            previewUrl,
+            name: file.name,
+            blob,
+            mimeType,
+            ext,
+          })
+        } catch {
+          newErrors.push(`${file.name}: No se pudo procesar la imagen.`)
+        }
+      }
+
+      setFileErrors(newErrors)
+      if (newItems.length === 0) return
+
+      if (productId) {
+        // EDIT: subir de inmediato (en paralelo, cada uno es su propia petición)
+        setItems(prev => [...prev, ...newItems])
+        await Promise.all(
+          newItems.map(async item => {
+            const result = await uploadOne(
+              item.localId,
+              item.blob,
+              item.mimeType,
+              item.ext,
+              productId,
+              storeId
+            )
+            if ('error' in result) {
+              rejectUpload(item.localId, result.error)
+            } else {
+              resolveUpload(item.localId, item.previewUrl, result.path, result.dbId)
+            }
+          })
+        )
+      } else {
+        // CREATE: encolar, el form llama uploadAllPending al crear el producto
+        setItems(prev => [...prev, ...newItems])
+      }
+    },
+    [productId, storeId]
+  )
+
+  // ── Retry ────────────────────────────────────────────────────────────────
+
+  async function retryUpload(item: LocalItem) {
+    if (!productId) return
+    setItems(prev =>
+      prev.map(i =>
+        'localId' in i && i.localId === item.localId
+          ? { ...i, kind: 'pending' as const, errorMsg: undefined }
+          : i
+      )
+    )
+    const result = await uploadOne(item.localId, item.blob, item.mimeType, item.ext, productId, storeId)
+    if ('error' in result) {
+      rejectUpload(item.localId, result.error)
+    } else {
+      resolveUpload(item.localId, item.previewUrl, result.path, result.dbId)
+    }
   }
 
-  // ── Reordenar (pendientes) ────────────────────────────────────────────────
+  // ── Eliminar ─────────────────────────────────────────────────────────────
 
-  function handleReorderPending(idx: number, direction: 'left' | 'right') {
-    const swapIdx = direction === 'left' ? idx - 1 : idx + 1
-    if (swapIdx < 0 || swapIdx >= pending.length) return
-    const next = [...pending]
-    ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
-    updatePending(next)
+  function removeLocalItem(localId: string, previewUrl: string) {
+    URL.revokeObjectURL(previewUrl)
+    setItems(prev => prev.filter(i => !('localId' in i) || i.localId !== localId))
   }
-
-  // ── Borrar (existentes) ───────────────────────────────────────────────────
 
   function confirmDeleteExisting() {
     if (!deleteTarget || !productId) return
@@ -136,39 +307,102 @@ export default function PhotosSection({ productId, initialImages, onPendingChang
     startTransition(async () => {
       const res = await deletePhoto(photoId)
       if (res.success) {
-        setExisting(prev => prev.filter(p => p.id !== photoId).map((p, i) => ({ ...p, position: i })))
+        setItems(prev => prev.filter(i => !(i.kind === 'existing' && i.data.id === photoId)))
       }
     })
   }
 
-  // ── Borrar (pendientes) ───────────────────────────────────────────────────
+  // ── Reordenar (arrastrar) ─────────────────────────────────────────────────
 
-  function handleDeletePending(idx: number) {
-    const next = pending.filter((_, i) => i !== idx)
-    // Revocar URL de objeto para liberar memoria
-    URL.revokeObjectURL(pending[idx].previewUrl)
-    updatePending(next)
+  function handleDragStart(e: React.DragEvent, idx: number) {
+    setDragSrcIdx(idx)
+    e.dataTransfer.effectAllowed = 'move'
   }
 
-  // Combinar lista para mostrar
-  const allPhotos: Array<
-    | { kind: 'existing'; data: ProductImageData; idx: number }
-    | { kind: 'pending'; data: PendingPhoto; idx: number }
-  > = [
-    ...existing.map((d, idx) => ({ kind: 'existing' as const, data: d, idx })),
-    ...pending.map((d, idx) => ({ kind: 'pending' as const, data: d, idx })),
-  ]
+  function handleDragOverItem(e: React.DragEvent, idx: number) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverIdx(idx)
+  }
+
+  function handleDragEnd() {
+    setDragSrcIdx(null)
+    setDragOverIdx(null)
+  }
+
+  async function handleDropItem(e: React.DragEvent, dropIdx: number) {
+    e.preventDefault()
+    const src = dragSrcIdx
+    setDragSrcIdx(null)
+    setDragOverIdx(null)
+    if (src === null || src === dropIdx) return
+
+    setItems(prev => {
+      const next = [...prev]
+      const [moved] = next.splice(src, 1)
+      next.splice(dropIdx, 0, moved)
+      return next
+    })
+
+    // Persistir posiciones de las existentes
+    if (productId) {
+      // Leer el estado actualizado via callback para evitar stale closure
+      setItems(current => {
+        const existingUpdates = current
+          .filter((i): i is ExistingItem => i.kind === 'existing')
+          .map((i, pos) => ({ id: i.data.id, position: pos }))
+        if (existingUpdates.length > 0) {
+          bulkSetPhotoPositions(existingUpdates, productId)
+        }
+        return current
+      })
+    }
+  }
+
+  // ── Reordenar (flechas) ───────────────────────────────────────────────────
+
+  function moveItem(idx: number, direction: 'left' | 'right') {
+    const swapIdx = direction === 'left' ? idx - 1 : idx + 1
+    if (swapIdx < 0 || swapIdx >= items.length) return
+
+    setItems(prev => {
+      const next = [...prev]
+      ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
+      if (productId) {
+        const updates = next
+          .filter((i): i is ExistingItem => i.kind === 'existing')
+          .map((i, pos) => ({ id: i.data.id, position: pos }))
+        if (updates.length > 0) bulkSetPhotoPositions(updates, productId)
+      }
+      return next
+    })
+  }
+
+  // ── Input handlers ────────────────────────────────────────────────────────
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files?.length) {
+      processFiles(e.target.files)
+      e.target.value = ''
+    }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <section className="bg-card rounded-card border border-border p-5 space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">Fotos</h2>
-        <span className="text-xs text-muted">{total}/{MAX_PHOTOS} fotos</span>
+        <span className="text-xs text-muted">
+          {total}/{MAX_PRODUCT_IMAGES} foto{total !== 1 ? 's' : ''}
+        </span>
       </div>
 
-      {errors.length > 0 && (
+      {/* Errores de validación */}
+      {fileErrors.length > 0 && (
         <ul className="space-y-1">
-          {errors.map((err, i) => (
+          {fileErrors.map((err, i) => (
             <li
               key={i}
               className="text-sm bg-stock-none-bg border border-stock-none/20 text-stock-none rounded-input px-3 py-2"
@@ -179,27 +413,38 @@ export default function PhotosSection({ productId, initialImages, onPendingChang
         </ul>
       )}
 
-      {/* Drop zone */}
-      {total < MAX_PHOTOS && (
+      {/* Zona de drop */}
+      {slotsLeft > 0 && (
         <div
-          ref={dropZoneRef}
           role="button"
           tabIndex={0}
           aria-label="Subir fotos"
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
+          onDragOver={e => { e.preventDefault(); setIsDraggingZone(true) }}
+          onDragLeave={() => setIsDraggingZone(false)}
+          onDrop={e => {
+            e.preventDefault()
+            setIsDraggingZone(false)
+            if (e.dataTransfer.files?.length) processFiles(e.dataTransfer.files)
+          }}
           onClick={() => fileInputRef.current?.click()}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click()
+          }}
           className={`border-2 border-dashed rounded-card p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 ${
-            isDragging ? 'border-foreground/40 bg-surface' : 'border-border hover:border-foreground/30 hover:bg-surface/50'
+            isDraggingZone
+              ? 'border-foreground/40 bg-surface'
+              : 'border-border hover:border-foreground/30 hover:bg-surface/50'
           }`}
         >
           <ImageIcon className="w-8 h-8 text-muted" aria-hidden="true" />
           <p className="text-sm text-muted text-center">
-            Arrastrá fotos aquí o <span className="text-foreground font-medium">elegí archivos</span>
+            Arrastrá fotos aquí o{' '}
+            <span className="text-foreground font-medium">elegí archivos</span>
           </p>
-          <p className="text-xs text-muted">JPG, PNG o WebP · máx. 10 MB por foto</p>
+          <p className="text-xs text-muted">
+            JPG, PNG o WebP · se comprimen automáticamente ·{' '}
+            {slotsLeft} lugar{slotsLeft !== 1 ? 'es' : ''} disponible{slotsLeft !== 1 ? 's' : ''}
+          </p>
         </div>
       )}
 
@@ -214,85 +459,141 @@ export default function PhotosSection({ productId, initialImages, onPendingChang
         onChange={handleFileChange}
       />
 
-      {/* Grilla de fotos */}
-      {allPhotos.length > 0 && (
+      {/* Grilla */}
+      {items.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {allPhotos.map((item, globalIdx) => {
+          {items.map((item, globalIdx) => {
             const isFirst = globalIdx === 0
-            const isLast = globalIdx === allPhotos.length - 1
-            const src =
-              item.kind === 'existing' ? item.data.url : item.data.previewUrl
+            const isLast = globalIdx === items.length - 1
+            const isExisting = item.kind === 'existing'
+            const isUploading = item.kind === 'uploading'
+            const isError = item.kind === 'error'
+            const isPendingState = item.kind === 'pending'
+            const isDragSrc = dragSrcIdx === globalIdx
+            const isDragTarget = dragOverIdx === globalIdx && dragSrcIdx !== globalIdx
+            const key = isExisting ? item.data.id : item.localId
+            const src = isExisting ? item.data.url : item.previewUrl
+            const altText = isExisting ? `Foto ${globalIdx + 1}` : item.name
 
             return (
               <div
-                key={item.kind === 'existing' ? item.data.id : `pending-${item.idx}`}
-                className="relative group aspect-square rounded-card overflow-hidden border border-border bg-surface"
+                key={key}
+                draggable={!isUploading}
+                onDragStart={e => handleDragStart(e, globalIdx)}
+                onDragOver={e => handleDragOverItem(e, globalIdx)}
+                onDragEnd={handleDragEnd}
+                onDrop={e => handleDropItem(e, globalIdx)}
+                className={`relative group aspect-square rounded-card overflow-hidden border bg-surface transition-transform select-none ${
+                  isDragTarget
+                    ? 'border-foreground/50 ring-2 ring-foreground/20 scale-[1.03]'
+                    : isDragSrc
+                    ? 'border-border opacity-40'
+                    : 'border-border'
+                }`}
               >
                 {/* Thumbnail */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={src}
-                  alt={item.kind === 'pending' ? item.data.name : `Foto ${globalIdx + 1}`}
-                  className="w-full h-full object-cover"
+                  alt={altText}
+                  className={`w-full h-full object-cover transition-opacity ${
+                    isUploading ? 'opacity-60' : ''
+                  }`}
+                  draggable={false}
                 />
 
                 {/* Badge portada */}
-                {globalIdx === 0 && (
+                {globalIdx === 0 && !isError && !isPendingState && (
                   <span className="absolute top-1.5 left-1.5 bg-foreground/80 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
                     Portada
                   </span>
                 )}
 
-                {/* Controles (visibles en hover o en mobile siempre) */}
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between p-1 bg-black/40 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-                  <button
-                    type="button"
-                    aria-label="Mover a la izquierda"
-                    disabled={isFirst || isPending}
-                    onClick={() => {
-                      if (item.kind === 'existing') {
-                        handleReorderExisting(item.data.id, 'left')
-                      } else {
-                        handleReorderPending(item.idx, 'left')
-                      }
-                    }}
-                    className="w-11 h-11 flex items-center justify-center text-white disabled:opacity-30 hover:bg-white/10 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-                  >
-                    <ChevronLeft className="w-4 h-4" aria-hidden="true" />
-                  </button>
+                {/* Overlay pendiente (solo en CREATE mode) */}
+                {isPendingState && !productId && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                    <span className="text-white text-[10px] font-medium bg-black/40 px-2 py-0.5 rounded">
+                      Pendiente
+                    </span>
+                  </div>
+                )}
 
-                  <button
-                    type="button"
-                    aria-label="Eliminar foto"
-                    disabled={isPending}
-                    onClick={() => {
-                      if (item.kind === 'existing') {
-                        if (productId) setDeleteTarget(item.data)
-                      } else {
-                        handleDeletePending(item.idx)
-                      }
-                    }}
-                    className="w-11 h-11 flex items-center justify-center text-white hover:text-red-300 hover:bg-white/10 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-                  >
-                    <Trash2 className="w-4 h-4" aria-hidden="true" />
-                  </button>
+                {/* Barra de progreso */}
+                {isUploading && (
+                  <div className="absolute inset-x-0 bottom-0 pointer-events-none">
+                    <div className="h-1.5 bg-white/30">
+                      <div
+                        className="h-1.5 bg-white transition-all duration-200"
+                        style={{ width: `${item.progress ?? 0}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
 
-                  <button
-                    type="button"
-                    aria-label="Mover a la derecha"
-                    disabled={isLast || isPending}
-                    onClick={() => {
-                      if (item.kind === 'existing') {
-                        handleReorderExisting(item.data.id, 'right')
-                      } else {
-                        handleReorderPending(item.idx, 'right')
-                      }
-                    }}
-                    className="w-11 h-11 flex items-center justify-center text-white disabled:opacity-30 hover:bg-white/10 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-                  >
-                    <ChevronRight className="w-4 h-4" aria-hidden="true" />
-                  </button>
-                </div>
+                {/* Overlay de error */}
+                {isError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/65 p-2">
+                    <AlertCircle
+                      className="w-5 h-5 text-red-300 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <p className="text-white text-[10px] text-center leading-tight line-clamp-3">
+                      {item.errorMsg}
+                    </p>
+                    {productId && (
+                      <button
+                        type="button"
+                        onClick={() => retryUpload(item)}
+                        aria-label={`Reintentar subida de ${item.name}`}
+                        className="mt-0.5 flex items-center gap-1 text-[10px] text-white bg-white/20 hover:bg-white/35 rounded px-2 py-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/60"
+                      >
+                        <RotateCcw className="w-3 h-3" aria-hidden="true" />
+                        Reintentar
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Controles (hover/visible en mobile) */}
+                {!isUploading && !isError && (
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between p-1 bg-black/40 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                    <button
+                      type="button"
+                      aria-label="Mover a la izquierda"
+                      disabled={isFirst || isUploadingAny}
+                      onClick={() => moveItem(globalIdx, 'left')}
+                      className="w-11 h-11 flex items-center justify-center text-white disabled:opacity-30 hover:bg-white/10 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                    >
+                      <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-label="Eliminar foto"
+                      disabled={isUploadingAny}
+                      onClick={() => {
+                        if (isExisting && productId) {
+                          setDeleteTarget(item.data)
+                        } else if (!isExisting) {
+                          removeLocalItem(item.localId, item.previewUrl)
+                        }
+                      }}
+                      className="w-11 h-11 flex items-center justify-center text-white hover:text-red-300 hover:bg-white/10 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                    >
+                      <Trash2 className="w-4 h-4" aria-hidden="true" />
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-label="Mover a la derecha"
+                      disabled={isLast || isUploadingAny}
+                      onClick={() => moveItem(globalIdx, 'right')}
+                      className="w-11 h-11 flex items-center justify-center text-white disabled:opacity-30 hover:bg-white/10 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                    >
+                      <ChevronRight className="w-4 h-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -321,8 +622,7 @@ export default function PhotosSection({ productId, initialImages, onPendingChang
             <button
               type="button"
               onClick={confirmDeleteExisting}
-              disabled={isPending}
-              className="flex-1 h-11 px-4 rounded-input bg-stock-none text-white border border-transparent text-sm font-medium hover:bg-stock-none/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stock-none/40"
+              className="flex-1 h-11 px-4 rounded-input bg-stock-none text-white border border-transparent text-sm font-medium hover:bg-stock-none/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stock-none/40"
             >
               Eliminar
             </button>
@@ -331,4 +631,6 @@ export default function PhotosSection({ productId, initialImages, onPendingChang
       </Modal>
     </section>
   )
-}
+})
+
+export default PhotosSection

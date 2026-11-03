@@ -23,7 +23,7 @@ export default async function NuevoProductoPage() {
         <h1 className="text-2xl font-semibold text-foreground">Nuevo producto</h1>
         <p className="text-muted text-sm mt-0.5">Completá la información para crear el producto</p>
       </div>
-      <ProductForm categories={tree} />
+      <ProductForm categories={tree} storeId={storeId} />
     </div>
   )
 }

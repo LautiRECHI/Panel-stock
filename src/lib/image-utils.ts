@@ -1,21 +1,30 @@
 // Utilidades de imagen seguras para cliente y servidor.
 // Sin imports de server-only.
 
-export const ACCEPTED_MIME = ['image/jpeg', 'image/png', 'image/webp'] as const
+export const MAX_PRODUCT_IMAGES = 15
 
-export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
+export const ACCEPTED_MIME = ['image/jpeg', 'image/png', 'image/webp'] as const
+export const HEIC_MIME = ['image/heic', 'image/heif'] as const
+
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB antes de comprimir
 
 /**
  * Valida un archivo de imagen.
  * Retorna un mensaje de error en español o null si es válido.
  */
 export function validateImageFile(file: File): string | null {
+  const isHeic =
+    (HEIC_MIME as readonly string[]).includes(file.type) ||
+    /\.hei[cf]$/i.test(file.name)
+  if (isHeic) {
+    return `Formato HEIC/HEIF no compatible. Convertilo a JPG o WebP antes de subir.`
+  }
   if (!ACCEPTED_MIME.includes(file.type as typeof ACCEPTED_MIME[number])) {
-    return `Tipo de archivo no permitido: ${file.type || 'desconocido'}. Usá JPG, PNG o WebP.`
+    return `Formato no compatible: ${file.type || 'desconocido'}. Usá JPG, PNG o WebP.`
   }
   if (file.size > MAX_FILE_SIZE_BYTES) {
     const mb = (file.size / 1024 / 1024).toFixed(1)
-    return `El archivo pesa ${mb} MB. El máximo permitido es 10 MB.`
+    return `El archivo pesa ${mb} MB. El máximo es 10 MB (se va a comprimir automáticamente).`
   }
   return null
 }
