@@ -13,6 +13,19 @@ import { registerPhoto, deletePhoto, bulkSetPhotoPositions } from './photos-acti
 import { createClient } from '@/lib/supabase/client'
 import Modal from '@/components/ui/Modal'
 
+const UPLOAD_TIMEOUT_MS = 60_000
+
+function withUploadTimeout<T>(promise: Promise<T>): Promise<T> {
+  let timerId: ReturnType<typeof setTimeout>
+  const timeout = new Promise<never>((_, reject) => {
+    timerId = setTimeout(
+      () => reject(new Error('La subida tardó demasiado. Verificá tu conexión e intentá de nuevo.')),
+      UPLOAD_TIMEOUT_MS
+    )
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timerId))
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ExistingItem = { kind: 'existing'; data: ProductImageData }
@@ -103,9 +116,17 @@ const PhotosSection = forwardRef<PhotosSectionHandle, Props>(function PhotosSect
       )
     }, 120)
 
-    const { error: uploadError } = await supabase.storage
-      .from('product-images')
-      .upload(path, blob, { contentType: mimeType, upsert: false })
+    let uploadError: { message: string } | null = null
+    try {
+      const result = await withUploadTimeout(
+        supabase.storage.from('product-images').upload(path, blob, { contentType: mimeType, upsert: false })
+      )
+      uploadError = result.error
+    } catch (err) {
+      clearInterval(timer)
+      const msg = err instanceof Error ? err.message : 'Error al subir la imagen. Intentá de nuevo.'
+      return { error: msg }
+    }
 
     clearInterval(timer)
 
@@ -120,8 +141,8 @@ const PhotosSection = forwardRef<PhotosSectionHandle, Props>(function PhotosSect
           ? 'Sin permiso para subir imágenes en esta tienda.'
           : uploadError.message.toLowerCase().includes('network') ||
             uploadError.message.toLowerCase().includes('fetch')
-          ? 'Error de red. Verificá tu conexión y reintentá.'
-          : `Error al subir: ${uploadError.message}`
+          ? 'Error de red. Verificá tu conexión e intentá de nuevo.'
+          : 'No se pudo subir la imagen. Intentá de nuevo.'
       return { error: msg }
     }
 
@@ -133,11 +154,16 @@ const PhotosSection = forwardRef<PhotosSectionHandle, Props>(function PhotosSect
       )
     )
 
-    const res = await registerPhoto(pid, path)
-    if (!res.success) {
-      // Limpiar archivo huérfano
+    let res: Awaited<ReturnType<typeof registerPhoto>>
+    try {
+      res = await registerPhoto(pid, path)
+    } catch {
       supabase.storage.from('product-images').remove([path])
-      return { error: res.error ?? 'No se pudo registrar la foto en la base de datos.' }
+      return { error: 'Error de red al registrar la foto. Verificá tu conexión e intentá de nuevo.' }
+    }
+    if (!res.success) {
+      supabase.storage.from('product-images').remove([path])
+      return { error: res.error ?? 'No se pudo registrar la foto.' }
     }
 
     return { path, dbId: res.id! }

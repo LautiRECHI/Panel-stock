@@ -128,8 +128,10 @@ export async function updateProduct(
       .eq('store_id', storeId)
       .eq('attributes', '{}')
 
-    if (skuError?.code === '23505') {
-      return { success: false, error: 'El SKU ya está en uso. Ingresá uno diferente.' }
+    if (skuError) {
+      if (skuError.code === '23505')
+        return { success: false, error: 'El SKU ya está en uso. Ingresá uno diferente.' }
+      return { success: false, error: 'No se pudo actualizar el SKU.' }
     }
   }
 

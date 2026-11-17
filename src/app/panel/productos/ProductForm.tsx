@@ -29,6 +29,9 @@ export default function ProductForm({ product, categories, storeId }: Props) {
   const [formError, setFormError] = useState<string | null>(null)
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const photosSectionRef = useRef<PhotosSectionHandle>(null)
+  // Guard anti-duplicado: una vez que createProduct tuvo éxito, guardamos el id
+  // y cualquier reintento redirige al edit en vez de crear otro producto.
+  const createdProductIdRef = useRef<string | null>(null)
 
   const isEdit = !!product
 
@@ -75,105 +78,139 @@ export default function ProductForm({ product, categories, storeId }: Props) {
   }
 
   function submit(status: 'draft' | 'active') {
+    // Anti-duplicado: si createProduct ya corrió, ir a edición en lugar de crear otro.
+    if (createdProductIdRef.current) {
+      router.push(`/panel/productos/${createdProductIdRef.current}`)
+      return
+    }
+
     setFormError(null)
     startTransition(async () => {
-      const categoryId = effectiveCategoryId()
+      try {
+        const categoryId = effectiveCategoryId()
 
-      if (isEdit && product) {
-        const res = await updateProduct({
-          id: product.id,
-          name,
-          priceRaw,
-          description,
-          brand,
-          status,
-          categoryId,
-          sku,
-        })
-        if (!res.success) { setFormError(res.error); return }
+        if (isEdit && product) {
+          const res = await updateProduct({
+            id: product.id,
+            name,
+            priceRaw,
+            description,
+            brand,
+            status,
+            categoryId,
+            sku,
+          })
+          if (!res.success) { setFormError(res.error ?? 'No se pudo guardar el producto.'); return }
 
-        if (!variantsEnabled && product.default_variant_id && stock !== defaultVariantStock) {
-          const stockRes = await setVariantStock(
-            product.default_variant_id,
-            stock,
-            'edición de producto'
-          )
-          if (!stockRes.success) { setFormError(stockRes.error); return }
-        }
-
-        // En EDIT las fotos se suben de inmediato al seleccionarlas; nada que hacer aquí.
-
-        if (variantsEnabled || variantRows.length > 0) {
-          const isConverting = !product.has_variants && variantsEnabled
-          if (isConverting && product.default_variant_id && product.total_stock > 0) {
-            await setDefaultVariantStockZero(product.default_variant_id, 'conversión a variantes')
+          if (!variantsEnabled && product.default_variant_id && stock !== defaultVariantStock) {
+            const stockRes = await setVariantStock(
+              product.default_variant_id,
+              stock,
+              'edición de producto'
+            )
+            if (!stockRes.success) { setFormError(stockRes.error ?? 'No se pudo actualizar el stock.'); return }
           }
-          if (variantRows.length > 0) {
+
+          // En EDIT las fotos se suben de inmediato al seleccionarlas; nada que hacer aquí.
+
+          if (variantsEnabled || variantRows.length > 0) {
+            const isConverting = !product.has_variants && variantsEnabled
+            if (isConverting && product.default_variant_id && product.total_stock > 0) {
+              await setDefaultVariantStockZero(product.default_variant_id, 'conversión a variantes')
+            }
+            if (variantRows.length > 0) {
+              const varRes = await upsertVariants(
+                product.id,
+                variantRows.map(r => ({
+                  id: r.id,
+                  sku: r.sku,
+                  attributes: r.attributes,
+                  price: r.priceRaw.trim() || null,
+                  stock: r.stock,
+                })),
+                isConverting ? 'conversión a variantes' : 'edición de variantes'
+              )
+              if (!varRes.success) { setFormError(varRes.error ?? 'No se pudieron guardar las variantes.'); return }
+            }
+          }
+
+          toast('Producto actualizado', 'success')
+          router.push('/panel/productos')
+        } else {
+          // ── CREATE ────────────────────────────────────────────────────────────
+          const initialStock = variantsEnabled ? 0 : stock
+
+          const res = await createProduct({
+            name,
+            priceRaw,
+            stock: initialStock,
+            description,
+            brand,
+            status,
+            categoryId,
+            sku,
+          })
+          if (!res.success) { setFormError(res.error ?? 'No se pudo crear el producto.'); return }
+
+          // A partir de aquí el producto existe. Guardamos el id antes de cualquier
+          // operación posterior para que un segundo clic nunca cree un duplicado.
+          const productId = res.productId!
+          createdProductIdRef.current = productId
+
+          // Fotos: no bloquean la publicación. Si fallan, se avisa y se redirige al edit.
+          let photoRes = { uploaded: 0, failed: [] as string[] }
+          try {
+            if (photosSectionRef.current) {
+              photoRes = await photosSectionRef.current.uploadAllPending(productId, storeId)
+            }
+          } catch {
+            photoRes = { uploaded: 0, failed: ['Error inesperado. Podés agregarlas desde edición.'] }
+          }
+
+          if (photoRes.failed.length > 0) {
+            const cuantas = photoRes.failed.length
+            toast(
+              `Producto creado. No se ${cuantas === 1 ? 'pudo subir 1 foto' : `pudieron subir ${cuantas} fotos`}. Podés agregarlas desde "Editar".`,
+              'warning'
+            )
+            router.push(`/panel/productos/${productId}`)
+            return
+          }
+
+          if (variantsEnabled && variantRows.length > 0) {
             const varRes = await upsertVariants(
-              product.id,
+              productId,
               variantRows.map(r => ({
-                id: r.id,
                 sku: r.sku,
                 attributes: r.attributes,
                 price: r.priceRaw.trim() || null,
                 stock: r.stock,
               })),
-              isConverting ? 'conversión a variantes' : 'edición de variantes'
+              'creación de producto'
             )
-            if (!varRes.success) { setFormError(varRes.error); return }
+            if (!varRes.success) {
+              toast('Producto creado, pero no se pudieron guardar las variantes. Editalo para agregarlas.', 'warning')
+              router.push(`/panel/productos/${productId}`)
+              return
+            }
           }
+
+          toast('Producto creado', 'success')
+          router.push('/panel/productos')
         }
+      } catch (err) {
+        const msg =
+          err instanceof Error && err.message
+            ? err.message
+            : 'Ocurrió un error inesperado. Intentá de nuevo.'
 
-        toast('Producto actualizado', 'success')
-        router.push('/panel/productos')
-      } else {
-        const initialStock = variantsEnabled ? 0 : stock
-
-        const res = await createProduct({
-          name,
-          priceRaw,
-          stock: initialStock,
-          description,
-          brand,
-          status,
-          categoryId,
-          sku,
-        })
-        if (!res.success) { setFormError(res.error); return }
-
-        const productId = res.productId!
-
-        // Subir fotos pendientes una por una, directo a Storage desde el navegador
-        if (photosSectionRef.current) {
-          const photoRes = await photosSectionRef.current.uploadAllPending(productId, storeId)
-          if (photoRes.failed.length > 0) {
-            toast(
-              `Se subieron ${photoRes.uploaded} foto${photoRes.uploaded !== 1 ? 's' : ''}. Fallaron: ${photoRes.failed.join(', ')}`,
-              'warning'
-            )
-          }
+        if (createdProductIdRef.current) {
+          // El producto ya fue creado; llevamos al edit con un aviso para no perder trabajo.
+          toast(msg, 'error')
+          router.push(`/panel/productos/${createdProductIdRef.current}`)
+        } else {
+          setFormError(msg)
         }
-
-        if (variantsEnabled && variantRows.length > 0) {
-          const varRes = await upsertVariants(
-            productId,
-            variantRows.map(r => ({
-              sku: r.sku,
-              attributes: r.attributes,
-              price: r.priceRaw.trim() || null,
-              stock: r.stock,
-            })),
-            'creación de producto'
-          )
-          if (!varRes.success) {
-            toast('Producto creado, pero no se pudieron guardar las variantes.', 'warning')
-            router.push(`/panel/productos/${productId}`)
-            return
-          }
-        }
-
-        toast('Producto creado', 'success')
-        router.push('/panel/productos')
       }
     })
   }
