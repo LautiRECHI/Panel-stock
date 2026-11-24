@@ -36,45 +36,65 @@ export async function upsertVariants(
   }>,
   reason: string
 ): Promise<ActionResult> {
-  const parsed = upsertSchema.safeParse({ productId, variants, reason })
-  if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0].message }
-  }
+  const label = `[upsertVariants pid=${productId.slice(-8)} reason=${reason}]`
+  console.time(label)
 
-  const storeId = await resolveStoreId()
-  if (!storeId) return { success: false, error: 'No autenticado.' }
-
-  const supabase = await createClient()
-
-  // Convertir a formato compatible con la función SQL
-  const rpcVariants = parsed.data.variants.map(v => ({
-    ...(v.id ? { id: v.id } : {}),
-    sku: v.sku,
-    attributes: v.attributes,
-    price: v.price,
-    stock: v.stock,
-  }))
-
-  const { error } = await supabase.rpc('upsert_variants', {
-    p_store_id: storeId,
-    p_product_id: productId,
-    p_variants: JSON.stringify(rpcVariants),
-    p_reason: reason,
-  })
-
-  if (error) {
-    if (error.code === 'P0002') {
-      return { success: false, error: 'No tenés acceso a estas variantes.' }
+  try {
+    const parsed = upsertSchema.safeParse({ productId, variants, reason })
+    if (!parsed.success) {
+      console.error(label, 'Zod error:', parsed.error.issues[0].code, parsed.error.issues[0].message)
+      console.timeEnd(label)
+      return { success: false, error: parsed.error.issues[0].message }
     }
-    if (error.code === '23505') {
-      return { success: false, error: 'Un SKU ya está en uso. Cambialo e intentá de nuevo.' }
-    }
-    return { success: false, error: 'No se pudieron guardar las variantes.' }
-  }
 
-  revalidatePath('/panel/productos')
-  revalidatePath(`/panel/productos/${productId}`)
-  return { success: true }
+    const storeId = await resolveStoreId()
+    if (!storeId) {
+      console.error(label, 'resolveStoreId: null — usuario sin tienda o sin sesión')
+      console.timeEnd(label)
+      return { success: false, error: 'No autenticado.' }
+    }
+
+    console.log(label, `variantes a enviar: ${parsed.data.variants.length}`)
+
+    const supabase = await createClient()
+
+    // Convertir a formato compatible con la función SQL
+    const rpcVariants = parsed.data.variants.map(v => ({
+      ...(v.id ? { id: v.id } : {}),
+      sku: v.sku,
+      attributes: v.attributes,
+      price: v.price,
+      stock: v.stock,
+    }))
+
+    const { error } = await supabase.rpc('upsert_variants', {
+      p_store_id: storeId,
+      p_product_id: productId,
+      p_variants: JSON.stringify(rpcVariants),
+      p_reason: reason,
+    })
+
+    if (error) {
+      console.error(label, `RPC error — code: ${error.code} | msg: ${error.message}${error.details ? ` | details: ${error.details}` : ''}`)
+      console.timeEnd(label)
+      if (error.code === 'P0002') {
+        return { success: false, error: 'No tenés acceso a estas variantes.' }
+      }
+      if (error.code === '23505') {
+        return { success: false, error: 'Un SKU ya está en uso. Cambialo e intentá de nuevo.' }
+      }
+      return { success: false, error: 'No se pudieron guardar las variantes.' }
+    }
+
+    console.timeEnd(label)
+    revalidatePath('/panel/productos')
+    revalidatePath(`/panel/productos/${productId}`)
+    return { success: true }
+  } catch (e) {
+    console.error(label, 'excepción no esperada:', e)
+    console.timeEnd(label)
+    return { success: false, error: 'Error inesperado al guardar las variantes.' }
+  }
 }
 
 export async function setVariantStock(

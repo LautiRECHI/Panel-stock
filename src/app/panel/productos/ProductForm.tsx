@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useRef } from 'react'
+import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { ProductFull } from '@/lib/products-utils'
@@ -32,6 +32,20 @@ export default function ProductForm({ product, categories, storeId }: Props) {
   // Guard anti-duplicado: una vez que createProduct tuvo éxito, guardamos el id
   // y cualquier reintento redirige al edit en vez de crear otro producto.
   const createdProductIdRef = useRef<string | null>(null)
+
+  // En React 19, router.push() dentro de startTransition extiende isPending hasta
+  // que la navegación se confirma (nuevo RSC payload descargado y renderizado).
+  // Si el caché fue invalidado por revalidatePath, eso puede tardar indefinidamente.
+  // Solución: acumular la URL destino en un ref y navegar DESPUÉS de que el
+  // transition termine (isPending → false), desde fuera del transition.
+  const redirectAfterTransitionRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!isPending && redirectAfterTransitionRef.current) {
+      const url = redirectAfterTransitionRef.current
+      redirectAfterTransitionRef.current = null
+      router.push(url)
+    }
+  }, [isPending, router])
 
   const isEdit = !!product
 
@@ -84,6 +98,7 @@ export default function ProductForm({ product, categories, storeId }: Props) {
       return
     }
 
+    redirectAfterTransitionRef.current = null
     setFormError(null)
     startTransition(async () => {
       try {
@@ -116,7 +131,10 @@ export default function ProductForm({ product, categories, storeId }: Props) {
           if (variantsEnabled || variantRows.length > 0) {
             const isConverting = !product.has_variants && variantsEnabled
             if (isConverting && product.default_variant_id && product.total_stock > 0) {
-              await setDefaultVariantStockZero(product.default_variant_id, 'conversión a variantes')
+              const zeroRes = await setDefaultVariantStockZero(product.default_variant_id, 'conversión a variantes')
+              if (!zeroRes.success) {
+                console.error('[ProductForm] setDefaultVariantStockZero failed:', zeroRes.error)
+              }
             }
             if (variantRows.length > 0) {
               const varRes = await upsertVariants(
@@ -135,7 +153,7 @@ export default function ProductForm({ product, categories, storeId }: Props) {
           }
 
           toast('Producto actualizado', 'success')
-          router.push('/panel/productos')
+          redirectAfterTransitionRef.current = '/panel/productos'
         } else {
           // ── CREATE ────────────────────────────────────────────────────────────
           const initialStock = variantsEnabled ? 0 : stock
@@ -173,7 +191,7 @@ export default function ProductForm({ product, categories, storeId }: Props) {
               `Producto creado. No se ${cuantas === 1 ? 'pudo subir 1 foto' : `pudieron subir ${cuantas} fotos`}. Podés agregarlas desde "Editar".`,
               'warning'
             )
-            router.push(`/panel/productos/${productId}`)
+            redirectAfterTransitionRef.current = `/panel/productos/${productId}`
             return
           }
 
@@ -190,13 +208,13 @@ export default function ProductForm({ product, categories, storeId }: Props) {
             )
             if (!varRes.success) {
               toast('Producto creado, pero no se pudieron guardar las variantes. Editalo para agregarlas.', 'warning')
-              router.push(`/panel/productos/${productId}`)
+              redirectAfterTransitionRef.current = `/panel/productos/${productId}`
               return
             }
           }
 
           toast('Producto creado', 'success')
-          router.push('/panel/productos')
+          redirectAfterTransitionRef.current = '/panel/productos'
         }
       } catch (err) {
         const msg =
@@ -204,10 +222,12 @@ export default function ProductForm({ product, categories, storeId }: Props) {
             ? err.message
             : 'Ocurrió un error inesperado. Intentá de nuevo.'
 
+        console.error('[ProductForm] submit error:', err)
+
         if (createdProductIdRef.current) {
           // El producto ya fue creado; llevamos al edit con un aviso para no perder trabajo.
           toast(msg, 'error')
-          router.push(`/panel/productos/${createdProductIdRef.current}`)
+          redirectAfterTransitionRef.current = `/panel/productos/${createdProductIdRef.current}`
         } else {
           setFormError(msg)
         }

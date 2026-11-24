@@ -15,7 +15,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(103);   -- total de assertions
+SELECT plan(109);   -- total de assertions
 
 -- =====================
 -- Setup: dos tiendas, dos usuarios, datos de ejemplo
@@ -1154,6 +1154,121 @@ SELECT ok(
 SELECT ok(
   (SELECT count(*) = 0 FROM public.public_products('tienda-a', 'cat-api-root', 'slug-inexistente')),
   '103. subcategoría inexistente bajo la categoría devuelve vacío (no fallback)'
+);
+
+-- =====================
+-- PARTE 20 — Conversión simple→variantes y edición de variantes (tests 104-109)
+-- Reproduce el escenario del bug: editar un producto simple y agregarle variantes.
+-- =====================
+RESET role;
+
+-- Setup: Producto F en Tienda A — producto simple, una variante por defecto sin atributos
+INSERT INTO public.products (id, store_id, name, slug, price, status)
+VALUES ('40000000-0000-0000-0001-000000000005', '20000000-0000-0000-0000-000000000001',
+        'Gorra Sin Variantes', 'gorra-sin-variantes', 1500, 'active')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.product_variants (id, store_id, product_id, sku, attributes, stock, is_active)
+VALUES ('50000000-0000-0000-0001-000000000005', '20000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0001-000000000005', 'GORRA-DEFAULT', '{}', 0, true)
+ON CONFLICT (id) DO NOTHING;
+
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- 104. Conversión: upsert_variants con 3 variantes de color — debe funcionar
+SELECT lives_ok(
+  $$SELECT public.upsert_variants(
+      '20000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0001-000000000005',
+      '[
+        {"sku":"GORRA-ROJO-001","attributes":{"color":"rojo"},"price":null,"stock":0},
+        {"sku":"GORRA-AZUL-001","attributes":{"color":"azul"},"price":null,"stock":0},
+        {"sku":"GORRA-VERDE-001","attributes":{"color":"verde"},"price":null,"stock":0}
+      ]'::jsonb,
+      'conversión a variantes'
+    )$$,
+  '104. Conversión a variantes: upsert con 3 colores debe funcionar'
+);
+
+-- 105. Las 3 variantes de color existen y tienen is_active=true
+SELECT ok(
+  (SELECT count(*) = 3 FROM public.product_variants
+   WHERE product_id = '40000000-0000-0000-0001-000000000005'
+     AND store_id = '20000000-0000-0000-0000-000000000001'
+     AND attributes != '{}'::jsonb
+     AND is_active = true),
+  '105. Las 3 variantes de color quedaron activas tras la conversión'
+);
+
+-- 106. La variante por defecto (attributes={}) quedó inactiva
+SELECT ok(
+  (SELECT is_active = false FROM public.product_variants
+   WHERE id = '50000000-0000-0000-0001-000000000005'),
+  '106. La variante por defecto quedó inactiva tras la conversión'
+);
+
+-- 107. Edición: upsert_variants con IDs explícitos actualiza el stock de las variantes
+SELECT lives_ok(
+  $$SELECT public.upsert_variants(
+      '20000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0001-000000000005',
+      (SELECT jsonb_agg(jsonb_build_object(
+          'id',         id,
+          'sku',        sku,
+          'attributes', attributes,
+          'price',      null,
+          'stock',      5
+       ))
+       FROM public.product_variants
+       WHERE product_id = '40000000-0000-0000-0001-000000000005'
+         AND store_id = '20000000-0000-0000-0000-000000000001'
+         AND attributes != '{}'::jsonb
+         AND is_active = true),
+      'edición de variantes'
+    )$$,
+  '107. Edición de variantes con IDs explícitos debe funcionar'
+);
+
+-- 108. Las 3 variantes de color tienen stock=5 tras la edición
+SELECT ok(
+  (SELECT count(*) = 3 FROM public.product_variants
+   WHERE product_id = '40000000-0000-0000-0001-000000000005'
+     AND store_id = '20000000-0000-0000-0000-000000000001'
+     AND attributes != '{}'::jsonb
+     AND is_active = true
+     AND stock = 5),
+  '108. Las 3 variantes tienen stock=5 tras la edición'
+);
+
+-- 109. Flujo CREATE: producto nuevo + upsert_variants (sin IDs) en la misma sesión
+-- Simula el caso "crear producto con variantes de talle" que antes fallaba.
+RESET role;
+INSERT INTO public.products (id, store_id, name, slug, price, status)
+VALUES ('40000000-0000-0000-0001-000000000006', '20000000-0000-0000-0000-000000000001',
+        'Remera Nueva', 'remera-nueva', 2000, 'active')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.product_variants (id, store_id, product_id, sku, attributes, stock, is_active)
+VALUES ('50000000-0000-0000-0001-000000000006', '20000000-0000-0000-0000-000000000001',
+        '40000000-0000-0000-0001-000000000006', 'REMERA-DEFAULT', '{}', 0, true)
+ON CONFLICT (id) DO NOTHING;
+
+SET LOCAL role TO authenticated;
+SET LOCAL "request.jwt.claims" TO
+  '{"sub":"10000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+SELECT lives_ok(
+  $$SELECT public.upsert_variants(
+      '20000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0001-000000000006',
+      '[
+        {"sku":"REMERA-S-001","attributes":{"talle":"S"},"price":null,"stock":10},
+        {"sku":"REMERA-M-001","attributes":{"talle":"M"},"price":null,"stock":5}
+      ]'::jsonb,
+      'creación de producto'
+    )$$,
+  '109. Crear producto con variantes de talle funciona (flujo CREATE)'
 );
 
 SELECT * FROM finish();

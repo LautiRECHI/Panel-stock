@@ -118,7 +118,10 @@ export async function updateProduct(
     .eq('id', id)
     .eq('store_id', storeId)
 
-  if (error) return { success: false, error: 'No se pudo actualizar el producto.' }
+  if (error) {
+    console.error(`[updateProduct pid=${id.slice(-8)}] DB error — code: ${error.code} | msg: ${error.message}`)
+    return { success: false, error: 'No se pudo actualizar el producto.' }
+  }
 
   if (sku?.trim()) {
     const { error: skuError } = await supabase
@@ -129,6 +132,7 @@ export async function updateProduct(
       .eq('attributes', '{}')
 
     if (skuError) {
+      console.error(`[updateProduct pid=${id.slice(-8)}] SKU error — code: ${skuError.code} | msg: ${skuError.message}`)
       if (skuError.code === '23505')
         return { success: false, error: 'El SKU ya está en uso. Ingresá uno diferente.' }
       return { success: false, error: 'No se pudo actualizar el SKU.' }
