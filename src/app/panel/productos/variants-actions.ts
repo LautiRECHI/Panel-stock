@@ -70,7 +70,7 @@ export async function upsertVariants(
     const { error } = await supabase.rpc('upsert_variants', {
       p_store_id: storeId,
       p_product_id: productId,
-      p_variants: JSON.stringify(rpcVariants),
+      p_variants: rpcVariants,
       p_reason: reason,
     })
 
